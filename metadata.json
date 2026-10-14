@@ -1,0 +1,6 @@
+{
+  "name": "ApexStudy - AI Student Task & Timetable Dashboard",
+  "description": "Clean, high-performance student task manager, interactive weekly timetable, focus timer, and AI companion chatbot with voice commands and image schedule parsing.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
