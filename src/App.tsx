@@ -12,12 +12,6 @@ import {
   ProblemReview,
   OccasionalActivity
 } from './types';
-import { 
-  INITIAL_TASKS, 
-  INITIAL_TIMETABLE,
-  INITIAL_ACCOUNTS,
-  INITIAL_PROBLEMS
-} from './data/mockData';
 import { AccountSwitcher } from './components/AccountSwitcher';
 import { AccountSetupModal } from './components/AccountSetupModal';
 import { SettingsModal } from './components/SettingsModal';
@@ -28,23 +22,48 @@ import { AcademicReportView } from './components/AcademicReportView';
 import { PermanentAIPanel } from './components/PermanentAIPanel';
 import { TimetableModal } from './components/TimetableModal';
 import { InstructionsModal } from './components/InstructionsModal';
+import { UserAuthGate } from './components/UserAuthGate';
+import { 
+  getActiveUser, 
+  setActiveUserId, 
+  getRegisteredUsers, 
+  saveRegisteredUsers, 
+  getUserTimetable, 
+  saveUserTimetable, 
+  getUserTasks, 
+  saveUserTasks, 
+  getUserProblems, 
+  saveUserProblems,
+  registerUser
+} from './utils/userStorage';
 import { 
   Sun, 
   Moon, 
-  Download, 
   CheckCircle2, 
   Calendar as CalendarIcon, 
   CheckSquare, 
   BarChart3,
   AlertCircle,
   Settings,
-  Palette
+  Palette,
+  LogOut,
+  User
 } from 'lucide-react';
 
 export default function App() {
   const [isDarkMode, setIsDarkMode] = useState<boolean>(() => {
     const saved = localStorage.getItem('apexstudy_theme');
     return saved ? saved === 'dark' : false; // Default to clean bright mode
+  });
+
+  // Current authenticated user session (guarantees device and user data isolation)
+  const [currentUser, setCurrentUser] = useState<StudentAccount | null>(() => {
+    return getActiveUser();
+  });
+
+  // Registered accounts on this device
+  const [accounts, setAccounts] = useState<StudentAccount[]>(() => {
+    return getRegisteredUsers();
   });
 
   // Navigation tabs:
@@ -54,31 +73,20 @@ export default function App() {
   // 'report' (Consolidated Analytics)
   const [activeTab, setActiveTab] = useState<'calendar' | 'tasks' | 'review' | 'report'>('calendar');
 
-  // Accounts state (Default starts with Sharim)
-  const [accounts, setAccounts] = useState<StudentAccount[]>(() => {
-    const saved = localStorage.getItem('apexstudy_accounts');
-    return saved ? JSON.parse(saved) : INITIAL_ACCOUNTS;
-  });
-
-  const [activeAccountId, setActiveAccountId] = useState<string>(() => {
-    return localStorage.getItem('apexstudy_active_acc_id') || 'acc-1';
-  });
-
-  // Schedule & Tasks state
+  // Schedule & Tasks state isolated strictly to currentUser
   const [slots, setSlots] = useState<TimetableSlot[]>(() => {
-    const saved = localStorage.getItem('apexstudy_timetable');
-    return saved ? JSON.parse(saved) : INITIAL_TIMETABLE;
+    const user = getActiveUser();
+    return user ? getUserTimetable(user.id) : [];
   });
 
   const [tasks, setTasks] = useState<Task[]>(() => {
-    const saved = localStorage.getItem('apexstudy_tasks');
-    return saved ? JSON.parse(saved) : INITIAL_TASKS;
+    const user = getActiveUser();
+    return user ? getUserTasks(user.id) : [];
   });
 
-  // Problem Reviews state
   const [problems, setProblems] = useState<ProblemReview[]>(() => {
-    const saved = localStorage.getItem('apexstudy_problems');
-    return saved ? JSON.parse(saved) : INITIAL_PROBLEMS;
+    const user = getActiveUser();
+    return user ? getUserProblems(user.id) : [];
   });
 
   // Modals state
@@ -113,51 +121,94 @@ export default function App() {
     }
   }, [isDarkMode]);
 
-  // Persist states
+  // Persist states strictly per active user
   useEffect(() => {
-    localStorage.setItem('apexstudy_accounts', JSON.stringify(accounts));
-  }, [accounts]);
+    if (currentUser) {
+      saveUserTimetable(currentUser.id, slots);
+    }
+  }, [slots, currentUser]);
 
   useEffect(() => {
-    localStorage.setItem('apexstudy_active_acc_id', activeAccountId);
-  }, [activeAccountId]);
+    if (currentUser) {
+      saveUserTasks(currentUser.id, tasks);
+    }
+  }, [tasks, currentUser]);
 
   useEffect(() => {
-    localStorage.setItem('apexstudy_timetable', JSON.stringify(slots));
-  }, [slots]);
+    if (currentUser) {
+      saveUserProblems(currentUser.id, problems);
+    }
+  }, [problems, currentUser]);
 
-  useEffect(() => {
-    localStorage.setItem('apexstudy_tasks', JSON.stringify(tasks));
-  }, [tasks]);
+  // Handle successful login or account registration from User Area
+  const handleAuthenticated = (user: StudentAccount) => {
+    setCurrentUser(user);
+    setAccounts(getRegisteredUsers());
+    setSlots(getUserTimetable(user.id));
+    setTasks(getUserTasks(user.id));
+    setProblems(getUserProblems(user.id));
+    showToast(`Welcome, ${user.name}! Workspace ready.`);
+  };
 
-  useEffect(() => {
-    localStorage.setItem('apexstudy_problems', JSON.stringify(problems));
-  }, [problems]);
+  // Switch between existing accounts
+  const handleSwitchAccount = (targetAccountId: string) => {
+    // 1. Save current workspace first
+    if (currentUser) {
+      saveUserTimetable(currentUser.id, slots);
+      saveUserTasks(currentUser.id, tasks);
+      saveUserProblems(currentUser.id, problems);
+    }
 
-  const activeAccount = accounts.find(a => a.id === activeAccountId) || accounts[0] || INITIAL_ACCOUNTS[0];
+    const all = getRegisteredUsers();
+    const target = all.find(a => a.id === targetAccountId);
+    if (target) {
+      setActiveUserId(target.id);
+      setCurrentUser(target);
+      setSlots(getUserTimetable(target.id));
+      setTasks(getUserTasks(target.id));
+      setProblems(getUserProblems(target.id));
+      showToast(`Switched account to: ${target.name}`);
+    }
+  };
+
+  // Log out of workspace (locks screen into User Area so next person starts fresh)
+  const handleLogout = () => {
+    if (currentUser) {
+      saveUserTimetable(currentUser.id, slots);
+      saveUserTasks(currentUser.id, tasks);
+      saveUserProblems(currentUser.id, problems);
+    }
+    setActiveUserId(null);
+    setCurrentUser(null);
+    showToast('Logged out of workspace');
+  };
 
   // Account Handlers
   const handleCreateAccount = (name: string, domain: string, term: string) => {
-    const newAcc: StudentAccount = {
-      id: `acc-${Date.now()}`,
+    const genUsername = name.toLowerCase().replace(/[^a-z0-9]/g, '') + Math.floor(100 + Math.random() * 900);
+    const result = registerUser({
+      username: genUsername,
+      password: 'password123',
       name,
       domain: domain || 'Science & Pre-Engineering',
-      termOrSubtitle: term || 'Active Semester',
-      avatarLetter: (name || 'S').charAt(0).toUpperCase(),
-      subjects: [
-        { id: `sub-${Date.now()}-1`, name: 'Physics', color: 'blue', code: 'PHY' },
-        { id: `sub-${Date.now()}-2`, name: 'Maths', color: 'crimson', code: 'MATH' },
-        { id: `sub-${Date.now()}-3`, name: 'Chemistry', color: 'emerald', code: 'CHEM' }
-      ],
-      occasionalActivities: []
-    };
-    setAccounts(prev => [...prev, newAcc]);
-    setActiveAccountId(newAcc.id);
-    showToast(`Created and switched to: ${name}`);
+      term: term || 'Active Semester'
+    });
+
+    if (result.success && result.user) {
+      setAccounts(getRegisteredUsers());
+      handleSwitchAccount(result.user.id);
+      showToast(`Created account: ${name} (@${result.user.username})`);
+    } else {
+      showToast(result.error || 'Failed to create account');
+    }
   };
 
   const handleUpdateActiveAccount = (updated: StudentAccount) => {
-    setAccounts(prev => prev.map(a => a.id === updated.id ? updated : a));
+    const all = getRegisteredUsers();
+    const updatedUsers = all.map(a => a.id === updated.id ? updated : a);
+    saveRegisteredUsers(updatedUsers);
+    setAccounts(updatedUsers);
+    setCurrentUser(updated);
     showToast(`Updated profile & courses for ${updated.name}`);
   };
 
@@ -167,8 +218,11 @@ export default function App() {
       return;
     }
     const remaining = accounts.filter(a => a.id !== accountId);
+    saveRegisteredUsers(remaining);
     setAccounts(remaining);
-    setActiveAccountId(remaining[0].id);
+    if (currentUser?.id === accountId) {
+      handleSwitchAccount(remaining[0].id);
+    }
     showToast('Account removed');
   };
 
@@ -327,7 +381,7 @@ export default function App() {
         const newProb: ProblemReview = {
           id: `prob-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
           title: action.data.title || 'Academic Problem',
-          subject: action.data.subject || activeAccount.subjects?.[0]?.name || 'Physics',
+          subject: action.data.subject || currentUser?.subjects?.[0]?.name || 'Physics',
           category: action.data.category || 'Academic Difficulty',
           severity: action.data.severity || 'High Priority',
           status: action.data.status || 'Active',
@@ -349,42 +403,56 @@ export default function App() {
   };
 
   const handleWipeToCompletelyEmpty = () => {
-    if (window.confirm('Wipe calendar, tasks, and problem reviews to a completely empty state?')) {
+    if (window.confirm('Wipe calendar, tasks, and problem reviews for this account?')) {
       setSlots([]);
       setTasks([]);
       setProblems([]);
-      showToast('All calendar, task, and problem entries cleared');
+      showToast('Account workspace cleared to clean slate');
     }
   };
 
   const handleExportBackup = () => {
+    if (!currentUser) return;
     const backupData = {
-      accounts,
-      activeAccountId,
+      account: currentUser,
       timetable: slots,
       tasks,
       problems,
-      version: '2.0',
+      version: '3.0',
       exportedAt: new Date().toISOString()
     };
     const blob = new Blob([JSON.stringify(backupData, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `apexstudy_backup_${activeAccount.name.toLowerCase()}_${new Date().toISOString().split('T')[0]}.json`;
+    a.download = `apexstudy_${currentUser.username || currentUser.name.toLowerCase()}_${new Date().toISOString().split('T')[0]}.json`;
     a.click();
     URL.revokeObjectURL(url);
     showToast('Backup JSON downloaded');
   };
 
   const handleImportBackup = (data: any) => {
-    if (data.accounts) setAccounts(data.accounts);
+    if (data.account && currentUser) {
+      handleUpdateActiveAccount({ ...currentUser, ...data.account });
+    }
     if (data.timetable) setSlots(data.timetable);
     if (data.tasks) setTasks(data.tasks);
     if (data.problems) setProblems(data.problems);
     showToast('Workspace backup restored');
   };
 
+  // If no user is logged in (e.g. opened on a brand new device), show the User Area Auth Gate
+  if (!currentUser) {
+    return (
+      <UserAuthGate 
+        onAuthenticated={handleAuthenticated}
+        isDarkMode={isDarkMode}
+        onToggleTheme={() => setIsDarkMode(!isDarkMode)}
+      />
+    );
+  }
+
+  const activeAccount = currentUser;
   const pendingTasksCount = tasks.filter(t => t.status !== 'completed').length;
   const activeProblemsCount = problems.filter(p => p.status === 'Active').length;
 
@@ -401,14 +469,11 @@ export default function App() {
       {/* Main Top Header */}
       <header className="h-16 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-4 sm:px-6 flex items-center justify-between shrink-0">
         <div className="flex items-center space-x-3">
-          {/* Account Selector & Profile Switcher */}
+          {/* User Area Account Selector & Switcher */}
           <AccountSwitcher
             accounts={accounts}
-            activeAccountId={activeAccountId}
-            onSelectAccount={(id) => {
-              setActiveAccountId(id);
-              showToast('Switched account view');
-            }}
+            activeAccountId={activeAccount.id}
+            onSelectAccount={handleSwitchAccount}
             onCreateAccount={handleCreateAccount}
             onOpenProfileSetup={() => {
               setSettingsInitialTab('profile');
@@ -418,6 +483,8 @@ export default function App() {
               setSettingsInitialTab('profile');
               setIsSettingsOpen(true);
             }}
+            onLogout={handleLogout}
+            onOpenUserArea={handleLogout}
           />
         </div>
 
@@ -478,7 +545,7 @@ export default function App() {
 
         {/* Right Header Controls */}
         <div className="flex items-center space-x-2">
-          {/* Quick Course Colors Trigger (opens settings directly on colors) */}
+          {/* Quick Course Colors Trigger */}
           <button
             onClick={() => {
               setSettingsInitialTab('colors');
@@ -498,13 +565,13 @@ export default function App() {
               setIsSettingsOpen(true);
             }}
             className="p-2 rounded-xl border border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 transition-colors cursor-pointer flex items-center space-x-1.5 bg-slate-50 dark:bg-slate-800/80 shadow-xs"
-            title="Comprehensive Settings (Profile, Colors, Tasks, Reviews, Theme)"
+            title="Comprehensive Settings"
           >
             <Settings className="w-4 h-4" />
-            <span className="text-xs font-bold hidden sm:inline">Settings Hub</span>
+            <span className="text-xs font-bold hidden sm:inline">Settings</span>
           </button>
 
-          {/* Theme Toggle (Bright & Dark Mode) */}
+          {/* Theme Toggle */}
           <button
             onClick={() => setIsDarkMode(!isDarkMode)}
             className="p-2 rounded-xl border border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 transition-colors cursor-pointer flex items-center space-x-1.5"
@@ -513,6 +580,16 @@ export default function App() {
             {isDarkMode ? <Sun className="w-4 h-4 text-amber-400" /> : <Moon className="w-4 h-4 text-slate-700" />}
             <span className="text-xs font-bold hidden sm:inline">{isDarkMode ? 'Bright' : 'Dark'}</span>
           </button>
+
+          {/* Logout / Switch User */}
+          <button
+            onClick={handleLogout}
+            className="p-2 rounded-xl border border-slate-200 dark:border-slate-800 hover:bg-rose-50 dark:hover:bg-rose-950/40 text-slate-700 hover:text-rose-600 dark:text-slate-300 dark:hover:text-rose-400 transition-colors cursor-pointer flex items-center space-x-1"
+            title="Log Out & Lock Workspace"
+          >
+            <LogOut className="w-4 h-4" />
+            <span className="text-xs font-bold hidden lg:inline">Log Out</span>
+          </button>
         </div>
       </header>
 
@@ -520,7 +597,7 @@ export default function App() {
       <div className="flex-1 flex flex-col lg:flex-row min-h-0 overflow-hidden">
         {/* MAIN STAGE (LEFT / CENTER) */}
         <main className="flex-1 p-4 sm:p-6 lg:p-8 overflow-y-auto">
-          {/* TAB 1: INTEGRATED CALENDAR (Month Overview + Week Detail + Day Inspector) */}
+          {/* TAB 1: INTEGRATED CALENDAR */}
           {activeTab === 'calendar' && (
             <CalendarScheduleView
               slots={slots}
@@ -597,7 +674,7 @@ export default function App() {
         onSaveAccount={handleUpdateActiveAccount}
       />
 
-      {/* All-in-one Settings Hub Modal (Profile, Colors, Tasks, Problem Reviews, Themes, Accounts) */}
+      {/* All-in-one Settings Hub Modal */}
       <SettingsModal
         isOpen={isSettingsOpen}
         onClose={() => setIsSettingsOpen(false)}
@@ -609,10 +686,7 @@ export default function App() {
         isDarkMode={isDarkMode}
         onToggleTheme={() => setIsDarkMode(!isDarkMode)}
         onUpdateAccount={handleUpdateActiveAccount}
-        onSelectAccount={(id) => {
-          setActiveAccountId(id);
-          showToast('Switched active profile');
-        }}
+        onSelectAccount={handleSwitchAccount}
         onCreateNewAccount={handleCreateAccount}
         onDeleteAccount={handleDeleteAccount}
         onAddOccasionalToSchedule={handleAddOccasionalToSchedule}

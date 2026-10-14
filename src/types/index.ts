@@ -101,11 +101,15 @@ export interface AIActionItem {
 export interface StudentAccount {
   id: string;
   name: string;
+  username?: string;
+  password?: string;        // Stored credential (min 6 chars)
   domain: string;           // e.g. "Science & Engineering", "Pre-Med", "High School", etc.
   termOrSubtitle: string;   // e.g. "Fall 2026", "Semester 1", "Grade 11"
   avatarLetter: string;
   subjects: SubjectDefinition[];
   occasionalActivities?: OccasionalActivity[];
+  createdAt?: string;
+  lastLoginAt?: string;
 }
 
 export interface ChatMessage {

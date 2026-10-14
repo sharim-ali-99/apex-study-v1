@@ -39,6 +39,48 @@ export async function askAIAssistant(
     problemsCount?: number;
   }
 ): Promise<AIResponse> {
+  // 0. Attempt backend Gemini API companion first (works on Vercel Serverless and local dev)
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 12000);
+
+    const apiRes = await fetch('/api/ai-companion', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        prompt,
+        image: imageAttachment,
+        context: {
+          currentDay: context?.currentDay,
+          currentDate: context?.currentDate,
+          accountName: context?.account?.name,
+          domain: context?.account?.domain,
+          subjects: context?.account?.subjects?.map(s => s.name),
+          tasksCount: context?.tasks?.length ?? context?.tasksCount,
+          slotsCount: context?.timetable?.length ?? context?.slotsCount,
+          problemsCount: context?.problems?.length ?? context?.problemsCount
+        }
+      }),
+      signal: controller.signal
+    });
+
+    clearTimeout(timeoutId);
+
+    if (apiRes.ok) {
+      const data = await apiRes.json();
+      if (!data.fallback && data.actions && Array.isArray(data.actions) && data.message) {
+        return {
+          message: data.message,
+          actions: data.actions
+        };
+      }
+    }
+  } catch {
+    // API endpoint unavailable, network offline, or timed out; gracefully proceed to client-side processor
+  }
+
   const p = prompt.toLowerCase();
   const actions: AIActionItem[] = [];
 
