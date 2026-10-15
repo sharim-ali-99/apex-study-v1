@@ -1,29 +1,34 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   TimetableSlot, 
   Task, 
-  DayOfWeek,
-  StudentAccount,
-  OccasionalActivity
+  DayOfWeek, 
+  StudentAccount 
 } from '../types';
 import { PROFESSIONAL_COLORS, getColorById, getSubjectColorId } from '../utils/colorPalette';
+import { exportToICS } from '../utils/calendarExport';
 import { 
   ChevronLeft, 
   ChevronRight, 
   Calendar as CalendarIcon, 
   Clock, 
   Plus, 
-  Edit3, 
   Trash2, 
   MapPin, 
   User, 
   Check, 
-  CalendarClock, 
   Sparkles, 
-  Info,
-  CalendarDays,
-  X,
-  FileText
+  X, 
+  CheckSquare, 
+  ArrowLeft,
+  AlertCircle,
+  Tag,
+  BookOpen,
+  Filter,
+  Download,
+  LayoutGrid,
+  List,
+  Compass
 } from 'lucide-react';
 
 interface CalendarScheduleViewProps {
@@ -34,9 +39,11 @@ interface CalendarScheduleViewProps {
   onEditSlot: (slot: TimetableSlot) => void;
   onDeleteSlot: (slotId: string) => void;
   onToggleTask: (taskId: string) => void;
+  onAddTask?: (task: Partial<Task>) => void;
   onOpenSettings?: () => void;
 }
 
+const DAYS_SHORT = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 const DAYS_FULL: DayOfWeek[] = [
   'Monday', 
   'Tuesday', 
@@ -47,6 +54,8 @@ const DAYS_FULL: DayOfWeek[] = [
   'Sunday'
 ];
 
+const RULER_HOURS = [8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21];
+
 export const CalendarScheduleView: React.FC<CalendarScheduleViewProps> = ({
   slots,
   tasks,
@@ -55,967 +64,879 @@ export const CalendarScheduleView: React.FC<CalendarScheduleViewProps> = ({
   onEditSlot,
   onDeleteSlot,
   onToggleTask,
-  onOpenSettings
+  onAddTask
 }) => {
-  // Integrated Calendar View Mode:
-  // 'month' (Macro bird's eye view)
-  // 'week' (Micro deep dive view with box cards)
-  const [viewMode, setViewMode] = useState<'month' | 'week'>('month');
-  
-  // Current calendar anchor date
+  // Current month anchor date
   const [currentDate, setCurrentDate] = useState<Date>(new Date());
 
-  // Selected Day state (for Day Detail Inspector)
-  const [selectedDayInfo, setSelectedDayInfo] = useState<{
-    dateStr: string;
-    dayOfWeekName: DayOfWeek;
-    dateNumber: number;
-    monthName: string;
-  } | null>(() => {
-    const today = new Date();
-    const dayIndex = (today.getDay() + 6) % 7;
-    return {
-      dateStr: today.toISOString().split('T')[0],
-      dayOfWeekName: DAYS_FULL[dayIndex],
-      dateNumber: today.getDate(),
-      monthName: new Intl.DateTimeFormat('en-US', { month: 'short' }).format(today)
-    };
+  // Selected Day state - when set to a date, opens in a LARGE EXPANSIVE AREA
+  const [selectedDateStr, setSelectedDateStr] = useState<string | null>(null);
+
+  // Active Subject Filter for month view
+  const [activeSubjectFilter, setActiveSubjectFilter] = useState<string>('ALL');
+
+  // Day Studio display mode: 'ruler' (Architectural Time-Ruler) vs 'cards' (Chronological list)
+  const [dayStudioMode, setDayStudioMode] = useState<'ruler' | 'cards'>('ruler');
+
+  // Adding item forms in Large Day Studio
+  const [activeFormTab, setActiveFormTab] = useState<'none' | 'slot' | 'task'>('none');
+  const [newSubject, setNewSubject] = useState(account.subjects?.[0]?.name || 'Physics');
+  const [newColor, setNewColor] = useState(account.subjects?.[0]?.color || 'blue');
+  const [newStartTime, setNewStartTime] = useState('09:00');
+  const [newEndTime, setNewEndTime] = useState('10:30');
+  const [newType, setNewType] = useState<any>('Lecture');
+  const [newRoom, setNewRoom] = useState('');
+  const [newInstructor, setNewInstructor] = useState('');
+  const [newNotes, setNewNotes] = useState('');
+
+  // Task form state
+  const [newTaskTitle, setNewTaskTitle] = useState('');
+  const [newTaskPriority, setNewTaskPriority] = useState<'High' | 'Medium' | 'Low'>('Medium');
+  const [newTaskDueTime, setNewTaskDueTime] = useState('23:59');
+
+  // Current live clock for red indicator line in Day Timeline
+  const [liveMinutesNow, setLiveMinutesNow] = useState<number>(() => {
+    const d = new Date();
+    return d.getHours() * 60 + d.getMinutes();
   });
 
-  // Quick Manual Add popover state
-  const [isAddingPeriod, setIsAddingPeriod] = useState(false);
-  const [newSlotDate, setNewSlotDate] = useState<string>('');
-  const [newSlotDay, setNewSlotDay] = useState<DayOfWeek>('Monday');
-  const [newSlotStart, setNewSlotStart] = useState('09:00');
-  const [newSlotEnd, setNewSlotEnd] = useState('10:30');
-  const [newSlotSubject, setNewSlotSubject] = useState(account.subjects?.[0]?.name || 'Physics');
-  const [newSlotColor, setNewSlotColor] = useState(account.subjects?.[0]?.color || 'blue');
-  const [newSlotRoom, setNewSlotRoom] = useState('');
-  const [newSlotInstructor, setNewSlotInstructor] = useState('');
-  const [newSlotType, setNewSlotType] = useState<any>('Lecture');
-  const [newSlotIsOccasional, setNewSlotIsOccasional] = useState(false);
-  const [newSlotNotes, setNewSlotNotes] = useState('');
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const d = new Date();
+      setLiveMinutesNow(d.getHours() * 60 + d.getMinutes());
+    }, 60000);
+    return () => clearInterval(interval);
+  }, []);
 
-  // Year & Month helpers
-  const year = currentDate.getFullYear();
-  const month = currentDate.getMonth();
-  const monthName = new Intl.DateTimeFormat('en-US', { month: 'long', year: 'numeric' }).format(currentDate);
-
-  const prevPeriod = () => {
-    if (viewMode === 'month') {
-      setCurrentDate(new Date(year, month - 1, 1));
-    } else {
-      const d = new Date(currentDate);
-      d.setDate(d.getDate() - 7);
-      setCurrentDate(d);
-    }
+  // Safe local YYYY-MM-DD formatter (avoids UTC timezone shift bugs)
+  const formatLocalDate = (y: number, m: number, d: number) => {
+    const mm = String(m + 1).padStart(2, '0');
+    const dd = String(d).padStart(2, '0');
+    return `${y}-${mm}-${dd}`;
   };
 
-  const nextPeriod = () => {
-    if (viewMode === 'month') {
-      setCurrentDate(new Date(year, month + 1, 1));
-    } else {
-      const d = new Date(currentDate);
-      d.setDate(d.getDate() + 7);
-      setCurrentDate(d);
-    }
+  const now = new Date();
+  const todayStr = formatLocalDate(now.getFullYear(), now.getMonth(), now.getDate());
+
+  // Month navigation helpers
+  const year = currentDate.getFullYear();
+  const month = currentDate.getMonth();
+  const monthTitle = new Intl.DateTimeFormat('en-US', { month: 'long', year: 'numeric' }).format(currentDate);
+
+  const prevMonth = () => {
+    setCurrentDate(new Date(year, month - 1, 1));
+  };
+
+  const nextMonth = () => {
+    setCurrentDate(new Date(year, month + 1, 1));
   };
 
   const goToToday = () => {
     const today = new Date();
     setCurrentDate(today);
-    const dayIndex = (today.getDay() + 6) % 7;
-    setSelectedDayInfo({
-      dateStr: today.toISOString().split('T')[0],
-      dayOfWeekName: DAYS_FULL[dayIndex],
-      dateNumber: today.getDate(),
-      monthName: new Intl.DateTimeFormat('en-US', { month: 'short' }).format(today)
-    });
   };
 
-  // Helper to get items for a specific date or weekday
-  const getItemsForDay = (dateStr: string, dayOfWeekName: DayOfWeek) => {
-    // 1. Slots matching this exact date OR matching this weekday without a conflicting specific date
+  // Build the 35 or 42 cells grid for the month
+  const firstDayOfMonth = new Date(year, month, 1);
+  const lastDayOfMonth = new Date(year, month + 1, 0);
+
+  // Monday = 0 index in ISO
+  const startOffset = (firstDayOfMonth.getDay() + 6) % 7; 
+  const totalDays = lastDayOfMonth.getDate();
+  const prevMonthLastDate = new Date(year, month, 0).getDate();
+
+  const cells: {
+    dateStr: string;
+    dateNumber: number;
+    isCurrentMonth: boolean;
+    isToday: boolean;
+    dayOfWeekName: DayOfWeek;
+  }[] = [];
+
+  // Trailing previous month days
+  for (let i = startOffset - 1; i >= 0; i--) {
+    const d = prevMonthLastDate - i;
+    const prevDate = new Date(year, month - 1, d);
+    const dayIndex = (prevDate.getDay() + 6) % 7;
+    const dStr = formatLocalDate(prevDate.getFullYear(), prevDate.getMonth(), d);
+    cells.push({
+      dateStr: dStr,
+      dateNumber: d,
+      isCurrentMonth: false,
+      isToday: dStr === todayStr,
+      dayOfWeekName: DAYS_FULL[dayIndex]
+    });
+  }
+
+  // Current month days
+  for (let d = 1; d <= totalDays; d++) {
+    const dateObj = new Date(year, month, d);
+    const dStr = formatLocalDate(year, month, d);
+    const dayIndex = (dateObj.getDay() + 6) % 7;
+    cells.push({
+      dateStr: dStr,
+      dateNumber: d,
+      isCurrentMonth: true,
+      isToday: dStr === todayStr,
+      dayOfWeekName: DAYS_FULL[dayIndex]
+    });
+  }
+
+  // Trailing next month days to complete 35 or 42 grid
+  const remaining = (cells.length > 35 ? 42 : 35) - cells.length;
+  for (let d = 1; d <= remaining; d++) {
+    const nextDate = new Date(year, month + 1, d);
+    const dayIndex = (nextDate.getDay() + 6) % 7;
+    const dStr = formatLocalDate(nextDate.getFullYear(), nextDate.getMonth(), d);
+    cells.push({
+      dateStr: dStr,
+      dateNumber: d,
+      isCurrentMonth: false,
+      isToday: dStr === todayStr,
+      dayOfWeekName: DAYS_FULL[dayIndex]
+    });
+  }
+
+  // Helper to extract slots and tasks for any date
+  const getItemsForDate = (dateStr: string) => {
+    const [y, m, d] = dateStr.split('-').map(Number);
+    const dateObj = new Date(y, (m || 1) - 1, d || 1);
+    const dayIndex = (dateObj.getDay() + 6) % 7;
+    const weekdayName = DAYS_FULL[dayIndex];
+
     const daySlots = slots.filter(s => {
-      if (s.date) {
-        return s.date === dateStr;
+      const matchesDate = s.date ? s.date === dateStr : s.dayOfWeek === weekdayName;
+      if (!matchesDate) return false;
+      if (activeSubjectFilter !== 'ALL' && s.subject.toLowerCase() !== activeSubjectFilter.toLowerCase()) {
+        return false;
       }
-      return s.dayOfWeek === dayOfWeekName;
+      return true;
     }).sort((a, b) => a.startTime.localeCompare(b.startTime));
 
-    // 2. Tasks with dueDate matching dateStr
     const dayTasks = tasks.filter(t => t.dueDate === dateStr);
 
-    return { daySlots, dayTasks };
+    return { daySlots, dayTasks, weekdayName, dateObj };
   };
 
-  // Compute 7 dates for the week view
-  const getWeekDates = () => {
-    const d = new Date(currentDate);
-    const day = d.getDay();
-    const diff = d.getDate() - day + (day === 0 ? -6 : 1); // Monday start
-    const monday = new Date(d.setDate(diff));
-
-    const week = [];
-    for (let i = 0; i < 7; i++) {
-      const nextDay = new Date(monday);
-      nextDay.setDate(monday.getDate() + i);
-      const fullDateStr = nextDay.toISOString().split('T')[0];
-      const todayStr = new Date().toISOString().split('T')[0];
-      const isToday = fullDateStr === todayStr;
-      week.push({
-        dayName: DAYS_FULL[i],
-        dateNumber: nextDay.getDate(),
-        fullDateStr,
-        isToday,
-        monthShort: new Intl.DateTimeFormat('en-US', { month: 'short' }).format(nextDay)
-      });
+  // Step to previous / next day inside the large day studio
+  const handleStepDay = (step: number) => {
+    if (!selectedDateStr) return;
+    const [y, m, d] = selectedDateStr.split('-').map(Number);
+    const dateObj = new Date(y, m - 1, d + step);
+    const nextDateStr = formatLocalDate(dateObj.getFullYear(), dateObj.getMonth(), dateObj.getDate());
+    setSelectedDateStr(nextDateStr);
+    if (dateObj.getMonth() !== month) {
+      setCurrentDate(new Date(dateObj.getFullYear(), dateObj.getMonth(), 1));
     }
-    return week;
   };
 
-  // Compute cells for Month View
-  const getMonthMatrix = () => {
-    const firstDayIndex = new Date(year, month, 1).getDay(); // 0 is Sun
-    const adjustedFirstDay = firstDayIndex === 0 ? 6 : firstDayIndex - 1; // 0 for Mon
-    const daysInMonth = new Date(year, month + 1, 0).getDate();
-    const daysInPrevMonth = new Date(year, month, 0).getDate();
-
-    const cells: {
-      dateNumber: number;
-      isCurrentMonth: boolean;
-      dateStr: string;
-      dayOfWeekName: DayOfWeek;
-      isToday: boolean;
-      monthShort: string;
-    }[] = [];
-
-    // Leading days from previous month
-    for (let i = adjustedFirstDay - 1; i >= 0; i--) {
-      const dateNum = daysInPrevMonth - i;
-      const prevDate = new Date(year, month - 1, dateNum);
-      const dayIndex = (prevDate.getDay() + 6) % 7;
-      cells.push({
-        dateNumber: dateNum,
-        isCurrentMonth: false,
-        dateStr: prevDate.toISOString().split('T')[0],
-        dayOfWeekName: DAYS_FULL[dayIndex],
-        isToday: false,
-        monthShort: new Intl.DateTimeFormat('en-US', { month: 'short' }).format(prevDate)
-      });
-    }
-
-    // Days in current month
-    const todayStr = new Date().toISOString().split('T')[0];
-    for (let i = 1; i <= daysInMonth; i++) {
-      const thisDate = new Date(year, month, i);
-      const dayIndex = (thisDate.getDay() + 6) % 7;
-      const fullStr = thisDate.toISOString().split('T')[0];
-      cells.push({
-        dateNumber: i,
-        isCurrentMonth: true,
-        dateStr: fullStr,
-        dayOfWeekName: DAYS_FULL[dayIndex],
-        isToday: fullStr === todayStr,
-        monthShort: new Intl.DateTimeFormat('en-US', { month: 'short' }).format(thisDate)
-      });
-    }
-
-    // Trailing days to complete grid
-    const totalCells = cells.length > 35 ? 42 : 35;
-    const remaining = totalCells - cells.length;
-    for (let i = 1; i <= remaining; i++) {
-      const nextDate = new Date(year, month + 1, i);
-      const dayIndex = (nextDate.getDay() + 6) % 7;
-      cells.push({
-        dateNumber: i,
-        isCurrentMonth: false,
-        dateStr: nextDate.toISOString().split('T')[0],
-        dayOfWeekName: DAYS_FULL[dayIndex],
-        isToday: false,
-        monthShort: new Intl.DateTimeFormat('en-US', { month: 'short' }).format(nextDate)
-      });
-    }
-
-    return cells;
-  };
-
-  const handleManualAddSubmit = (e: React.FormEvent) => {
+  const handleCreateSlotSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newSlotSubject.trim()) return;
+    if (!selectedDateStr || !newSubject.trim()) return;
+
+    const { weekdayName } = getItemsForDate(selectedDateStr);
 
     onAddSlot({
-      dayOfWeek: newSlotDay,
-      date: newSlotDate ? newSlotDate : undefined,
-      startTime: newSlotStart,
-      endTime: newSlotEnd,
-      subject: newSlotSubject.trim(),
-      color: newSlotColor,
-      location: newSlotRoom.trim(),
-      instructor: newSlotInstructor.trim(),
-      type: newSlotType,
-      isOccasional: newSlotIsOccasional,
-      notes: newSlotNotes.trim()
+      dayOfWeek: weekdayName,
+      date: selectedDateStr,
+      startTime: newStartTime,
+      endTime: newEndTime,
+      subject: newSubject.trim(),
+      type: newType,
+      location: newRoom.trim(),
+      instructor: newInstructor.trim(),
+      color: newColor,
+      notes: newNotes.trim()
     });
 
-    setIsAddingPeriod(false);
-    setNewSlotRoom('');
-    setNewSlotInstructor('');
-    setNewSlotIsOccasional(false);
-    setNewSlotNotes('');
+    setActiveFormTab('none');
+    setNewRoom('');
+    setNewNotes('');
   };
 
-  const handleQuickAddOccasional = (occ: OccasionalActivity) => {
-    const currentDayName = DAYS_FULL[(new Date().getDay() + 6) % 7];
-    const todayStr = new Date().toISOString().split('T')[0];
-    onAddSlot({
-      dayOfWeek: currentDayName,
-      date: todayStr,
-      startTime: '14:00',
-      endTime: '16:00',
-      subject: occ.title,
-      color: occ.color || 'blue',
-      location: 'Campus / Online',
-      type: 'Workshop',
-      notes: occ.notes || 'Occasional activity',
-      isOccasional: true
-    });
+  const handleCreateTaskSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedDateStr || !newTaskTitle.trim()) return;
+
+    if (onAddTask) {
+      onAddTask({
+        title: newTaskTitle.trim(),
+        subject: newSubject,
+        dueDate: selectedDateStr,
+        dueTime: newTaskDueTime,
+        priority: newTaskPriority,
+        category: 'Homework',
+        status: 'todo'
+      });
+    }
+
+    setActiveFormTab('none');
+    setNewTaskTitle('');
   };
 
-  // Jump from month view directly into the week view of the selected day
-  const handleDrillDownToWeek = (dateStr: string) => {
-    const targetDate = new Date(dateStr + 'T00:00:00');
-    setCurrentDate(targetDate);
-    setViewMode('week');
+  // Helper to parse "HH:MM" into minutes from midnight
+  const parseTimeToMinutes = (timeStr: string) => {
+    const [h, m] = (timeStr || '09:00').split(':').map(Number);
+    return (h || 0) * 60 + (m || 0);
   };
 
-  const weekDays = getWeekDates();
-  const monthMatrix = getMonthMatrix();
+  // Calculate unique subjects in user account
+  const accountSubjects = account.subjects && account.subjects.length > 0 
+    ? account.subjects 
+    : [
+        { id: 'sub-1', name: 'Physics', color: 'blue' },
+        { id: 'sub-2', name: 'Maths', color: 'emerald' },
+        { id: 'sub-3', name: 'Chemistry', color: 'amber' }
+      ];
 
-  // Selected Day Items for detailed inspector drawer
-  const selectedDayItems = selectedDayInfo 
-    ? getItemsForDay(selectedDayInfo.dateStr, selectedDayInfo.dayOfWeekName)
-    : null;
+  // =========================================================================
+  // VIEW MODE A: LARGE EXPANSIVE DAY AREA (Opened upon clicking any date)
+  // =========================================================================
+  if (selectedDateStr) {
+    const { daySlots, dayTasks, weekdayName, dateObj } = getItemsForDate(selectedDateStr);
+    const selectedDateFormatted = new Intl.DateTimeFormat('en-US', {
+      weekday: 'long',
+      month: 'long',
+      day: 'numeric',
+      year: 'numeric'
+    }).format(dateObj);
 
-  return (
-    <div className="space-y-4 animate-fade-in">
-      {/* ============================================================== */}
-      {/* OCCASIONAL ACTIVITIES SHELF                                    */}
-      {/* ============================================================== */}
-      {account.occasionalActivities && account.occasionalActivities.length > 0 && (
-        <div className="p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/60 shadow-xs">
-          <div className="flex items-center justify-between mb-2">
-            <div className="flex items-center space-x-2">
-              <CalendarClock className="w-4 h-4 text-slate-700 dark:text-slate-300" />
-              <span className="text-xs font-bold text-slate-900 dark:text-white">
-                Occasional & One-Off Activities
-              </span>
-              <span className="text-[10px] text-slate-400">
-                (Click to add directly into calendar)
-              </span>
-            </div>
-            {onOpenSettings && (
-              <button
-                onClick={onOpenSettings}
-                className="text-[11px] font-semibold text-slate-500 hover:text-slate-900 dark:hover:text-white cursor-pointer"
-              >
-                Manage in Settings →
-              </button>
-            )}
-          </div>
+    // Compute live line position (08:00 = 480 min, 22:00 = 1320 min)
+    const rulerStartMinutes = 8 * 60; // 480
+    const rulerTotalMinutes = 14 * 60; // 840 (8am to 10pm)
+    const livePercent = Math.max(0, Math.min(100, ((liveMinutesNow - rulerStartMinutes) / rulerTotalMinutes) * 100));
 
-          <div className="flex items-center space-x-2 overflow-x-auto pb-1">
-            {account.occasionalActivities.map((occ) => {
-              const col = getColorById(occ.color);
-              return (
-                <button
-                  key={occ.id}
-                  onClick={() => handleQuickAddOccasional(occ)}
-                  className="flex items-center space-x-2 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 hover:border-slate-400 dark:hover:border-slate-600 bg-slate-50 dark:bg-slate-800 text-left transition-colors cursor-pointer shrink-0"
-                  title={`Click to add ${occ.title} to calendar`}
-                >
-                  <span className={`w-2.5 h-2.5 rounded-full ${col.previewBg}`}></span>
-                  <div>
-                    <div className="text-xs font-bold text-slate-900 dark:text-white leading-tight">
-                      {occ.title}
-                    </div>
-                    <div className="text-[10px] text-slate-400">
-                      {occ.category} • ~{occ.estimatedHours || 1}h
-                    </div>
-                  </div>
-                  <Plus className="w-3.5 h-3.5 text-slate-400 ml-1" />
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      {/* ============================================================== */}
-      {/* INTEGRATED CALENDAR CONTROLS & DUAL VIEW SWITCHER               */}
-      {/* ============================================================== */}
-      <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 p-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-xs">
-        {/* Navigation & Period Label */}
-        <div className="flex items-center space-x-2">
+    return (
+      <div className="space-y-5 animate-fade-in">
+        {/* Large Day Area Top Action Bar */}
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 p-4 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl shadow-sm">
+          {/* Back to Month button */}
           <button
-            onClick={goToToday}
-            className="px-3 py-1.5 text-xs font-bold rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-800 dark:text-slate-200 transition-colors cursor-pointer"
+            onClick={() => setSelectedDateStr(null)}
+            className="flex items-center space-x-2 px-3.5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-900 dark:text-white text-xs font-bold transition-all cursor-pointer shadow-xs self-start sm:self-auto"
           >
-            Today
+            <ArrowLeft className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+            <span>← Back to Month Overview</span>
           </button>
 
-          <div className="flex items-center space-x-1">
+          {/* Date Pagination Switcher */}
+          <div className="flex items-center space-x-2">
             <button
-              onClick={prevPeriod}
-              className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 transition-colors cursor-pointer"
-              title="Previous"
+              onClick={() => handleStepDay(-1)}
+              className="p-2 rounded-xl border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 transition-colors cursor-pointer"
+              title="Previous Day"
             >
               <ChevronLeft className="w-4 h-4" />
             </button>
+
+            <span className="flex items-center space-x-1.5 text-xs font-mono font-bold px-3 py-1.5 rounded-lg bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300">
+              <span className={`w-2 h-2 rounded-full ${selectedDateStr === todayStr ? 'bg-emerald-500 animate-pulse' : 'bg-blue-500'}`} />
+              <span>{selectedDateStr === todayStr ? 'TODAY' : weekdayName.toUpperCase()}</span>
+            </span>
+
             <button
-              onClick={nextPeriod}
-              className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 transition-colors cursor-pointer"
-              title="Next"
+              onClick={() => handleStepDay(1)}
+              className="p-2 rounded-xl border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 transition-colors cursor-pointer"
+              title="Next Day"
             >
               <ChevronRight className="w-4 h-4" />
             </button>
           </div>
 
-          <span className="text-sm font-bold text-slate-900 dark:text-white ml-2">
-            {viewMode === 'month' ? monthName : `Week of ${weekDays[0].monthShort} ${weekDays[0].dateNumber} – ${weekDays[6].monthShort} ${weekDays[6].dateNumber}`}
-          </span>
-        </div>
-
-        {/* Integrated Dual Views: Month (Bigger overview) ⇄ Week (Detailed drill-down) */}
-        <div className="flex items-center space-x-2">
-          <div className="flex items-center p-0.5 bg-slate-100 dark:bg-slate-800 rounded-lg text-xs font-semibold">
+          {/* Export to .ics + Quick Add Toolbar */}
+          <div className="flex items-center space-x-2">
             <button
-              onClick={() => setViewMode('month')}
-              className={`px-3 py-1.5 rounded-md transition-colors cursor-pointer flex items-center space-x-1.5 ${
-                viewMode === 'month'
-                  ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-xs font-bold'
-                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+              onClick={() => exportToICS(slots, tasks, account.name)}
+              className="flex items-center space-x-1 px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 text-xs font-bold transition-all cursor-pointer shadow-xs"
+              title="Export this schedule to Google Calendar / Apple Calendar (.ics)"
+            >
+              <Download className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
+              <span className="hidden sm:inline">Export .ics</span>
+            </button>
+
+            <button
+              onClick={() => setActiveFormTab(activeFormTab === 'slot' ? 'none' : 'slot')}
+              className={`flex items-center space-x-1.5 px-3 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer shadow-xs ${
+                activeFormTab === 'slot'
+                  ? 'bg-blue-600 text-white ring-2 ring-blue-500/30'
+                  : 'bg-blue-50 dark:bg-blue-950/50 text-blue-700 dark:text-blue-300 hover:bg-blue-100 dark:hover:bg-blue-900/60'
               }`}
             >
-              <CalendarIcon className="w-3.5 h-3.5" />
-              <span>Month Overview</span>
+              <Plus className="w-3.5 h-3.5" />
+              <span>+ Period</span>
             </button>
+
             <button
-              onClick={() => setViewMode('week')}
-              className={`px-3 py-1.5 rounded-md transition-colors cursor-pointer flex items-center space-x-1.5 ${
-                viewMode === 'week'
-                  ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-xs font-bold'
-                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+              onClick={() => setActiveFormTab(activeFormTab === 'task' ? 'none' : 'task')}
+              className={`flex items-center space-x-1.5 px-3 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer shadow-xs ${
+                activeFormTab === 'task'
+                  ? 'bg-emerald-600 text-white ring-2 ring-emerald-500/30'
+                  : 'bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-900/60'
               }`}
             >
-              <CalendarDays className="w-3.5 h-3.5" />
-              <span>Week Detail</span>
+              <CheckSquare className="w-3.5 h-3.5" />
+              <span>+ Task</span>
             </button>
           </div>
-
-          <button
-            onClick={() => {
-              if (selectedDayInfo) {
-                setNewSlotDate(selectedDayInfo.dateStr);
-                setNewSlotDay(selectedDayInfo.dayOfWeekName);
-              }
-              setIsAddingPeriod(!isAddingPeriod);
-            }}
-            className="flex items-center space-x-1.5 px-3.5 py-1.5 rounded-lg text-xs font-bold bg-slate-900 hover:bg-black dark:bg-white dark:hover:bg-slate-100 text-white dark:text-slate-900 cursor-pointer shadow-xs"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            <span>Add Event / Class</span>
-          </button>
         </div>
-      </div>
 
-      {/* Manual Add Period Form */}
-      {isAddingPeriod && (
-        <form onSubmit={handleManualAddSubmit} className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-4 space-y-3 animate-fade-in shadow-xs">
-          <div className="flex items-center justify-between pb-2 border-b border-slate-100 dark:border-slate-800">
-            <span className="text-xs font-bold text-slate-900 dark:text-white">Add Class, Test, or Calendar Event</span>
-            <span className="text-[11px] text-slate-400">Attached directly to your calendar date/schedule</span>
+        {/* Large Day Header Banner with Tactile Glass / Paper Layers */}
+        <div className="p-6 bg-gradient-to-r from-blue-600 via-indigo-600 to-violet-600 rounded-3xl text-white shadow-lg flex flex-col md:flex-row md:items-center justify-between gap-4 relative overflow-hidden">
+          <div className="absolute inset-0 paper-grain opacity-20 pointer-events-none" />
+          <div className="relative z-10">
+            <div className="flex items-center space-x-2 text-xs font-mono font-bold uppercase tracking-wider text-blue-200 mb-1">
+              <span className="inline-block w-2 h-2 rounded-full bg-blue-300 animate-ping" />
+              <span>{weekdayName} • Detailed Academic Studio</span>
+            </div>
+            <h1 className="text-2xl sm:text-3xl font-black tracking-tight text-white">
+              {selectedDateFormatted}
+            </h1>
+            <p className="text-xs text-blue-100 mt-1 flex items-center space-x-3">
+              <span>● {daySlots.length} schedule periods</span>
+              <span>● {dayTasks.length} pending deadlines</span>
+              <span>● Term: {account.termOrSubtitle || 'Active Semester'}</span>
+            </p>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
-            <div>
-              <label className="block text-[11px] font-bold text-slate-500 mb-1">Subject / Title *</label>
-              <div className="flex space-x-1">
-                <input
-                  type="text"
-                  required
-                  value={newSlotSubject}
+          <div className="relative z-10 flex items-center space-x-2 text-xs font-bold">
+            <span className="px-3 py-1.5 rounded-xl bg-white/20 backdrop-blur-md text-white font-mono">
+              {selectedDateStr}
+            </span>
+            {selectedDateStr === todayStr && (
+              <span className="px-3 py-1.5 rounded-xl bg-emerald-500 text-white shadow-sm font-extrabold flex items-center space-x-1.5">
+                <span className="w-2 h-2 rounded-full bg-white animate-pulse" />
+                <span>Live Active Day</span>
+              </span>
+            )}
+          </div>
+        </div>
+
+        {/* ADD PERIOD COMPOSER (Inline expander) */}
+        {activeFormTab === 'slot' && (
+          <form onSubmit={handleCreateSlotSubmit} className="p-5 bg-white dark:bg-slate-900 border-2 border-blue-500/40 rounded-2xl shadow-md space-y-4 animate-fade-in">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
+              <div className="flex items-center space-x-2">
+                <div className="w-7 h-7 rounded-lg bg-blue-100 dark:bg-blue-900/60 flex items-center justify-center text-blue-600 dark:text-blue-400 font-bold">
+                  <Clock className="w-4 h-4" />
+                </div>
+                <h4 className="text-sm font-extrabold text-slate-900 dark:text-white">
+                  Add New Class or Period to {selectedDateStr}
+                </h4>
+              </div>
+              <button 
+                type="button" 
+                onClick={() => setActiveFormTab('none')}
+                className="p-1 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
+              <div>
+                <label className="block text-xs font-bold text-slate-600 dark:text-slate-300 mb-1">Subject *</label>
+                <select
+                  value={newSubject}
                   onChange={(e) => {
                     const val = e.target.value;
-                    setNewSlotSubject(val);
-                    const matchingSub = account.subjects?.find(s => s.name.toLowerCase() === val.toLowerCase());
-                    if (matchingSub) setNewSlotColor(matchingSub.color);
+                    setNewSubject(val);
+                    setNewColor(getSubjectColorId(val, accountSubjects));
                   }}
-                  placeholder="e.g. Physics, Calculus Test..."
-                  className="w-full px-2.5 py-1.5 text-xs rounded bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white outline-none"
+                  className="w-full px-3 py-2 text-xs font-semibold rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  {accountSubjects.map(s => (
+                    <option key={s.id} value={s.name}>{s.name}</option>
+                  ))}
+                  <option value="Physics">Physics</option>
+                  <option value="Maths">Maths</option>
+                  <option value="Chemistry">Chemistry</option>
+                  <option value="Computer Science">Computer Science</option>
+                  <option value="Exam / Test">Exam / Test</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-600 dark:text-slate-300 mb-1">Color Palette</label>
+                <select
+                  value={newColor}
+                  onChange={(e) => setNewColor(e.target.value)}
+                  className="w-full px-3 py-2 text-xs font-semibold rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  {PROFESSIONAL_COLORS.map(c => (
+                    <option key={c.id} value={c.id}>{c.label}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-600 dark:text-slate-300 mb-1">Start Time</label>
+                <input
+                  type="time"
+                  value={newStartTime}
+                  onChange={(e) => setNewStartTime(e.target.value)}
+                  className="w-full px-3 py-2 text-xs font-mono font-bold rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-blue-500"
                 />
-                {account.subjects && account.subjects.length > 0 && (
-                  <select
-                    onChange={(e) => {
-                      const sel = account.subjects?.find(s => s.id === e.target.value);
-                      if (sel) {
-                        setNewSlotSubject(sel.name);
-                        setNewSlotColor(sel.color);
-                      }
-                    }}
-                    className="px-2 py-1.5 text-xs rounded bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 outline-none"
-                    title="Select from courses"
-                  >
-                    <option value="">Courses</option>
-                    {account.subjects.map(s => (
-                      <option key={s.id} value={s.id}>{s.name}</option>
-                    ))}
-                  </select>
-                )}
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-600 dark:text-slate-300 mb-1">End Time</label>
+                <input
+                  type="time"
+                  value={newEndTime}
+                  onChange={(e) => setNewEndTime(e.target.value)}
+                  className="w-full px-3 py-2 text-xs font-mono font-bold rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-blue-500"
+                />
               </div>
             </div>
 
-            <div>
-              <label className="block text-[11px] font-bold text-slate-500 mb-1">Calendar Date (Optional for one-off/test)</label>
-              <input
-                type="date"
-                value={newSlotDate}
-                onChange={(e) => {
-                  setNewSlotDate(e.target.value);
-                  if (e.target.value) {
-                    const d = new Date(e.target.value + 'T00:00:00');
-                    const dayIdx = (d.getDay() + 6) % 7;
-                    setNewSlotDay(DAYS_FULL[dayIdx]);
-                  }
-                }}
-                className="w-full px-2.5 py-1.5 text-xs font-mono rounded bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white outline-none"
-              />
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div>
+                <label className="block text-xs font-bold text-slate-600 dark:text-slate-300 mb-1">Session Type</label>
+                <select
+                  value={newType}
+                  onChange={(e) => setNewType(e.target.value as any)}
+                  className="w-full px-3 py-2 text-xs font-semibold rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white outline-none"
+                >
+                  <option value="Lecture">Lecture</option>
+                  <option value="Lab">Lab / Practical</option>
+                  <option value="Tutorial">Tutorial / Discussion</option>
+                  <option value="Study Block">Study Block</option>
+                  <option value="Exam">Exam / Midterm</option>
+                  <option value="Workshop">Workshop</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-600 dark:text-slate-300 mb-1">Location / Room</label>
+                <input
+                  type="text"
+                  value={newRoom}
+                  onChange={(e) => setNewRoom(e.target.value)}
+                  placeholder="e.g. Science Hall 302 or Online"
+                  className="w-full px-3 py-2 text-xs rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-600 dark:text-slate-300 mb-1">Professor / Notes</label>
+                <input
+                  type="text"
+                  value={newInstructor}
+                  onChange={(e) => setNewInstructor(e.target.value)}
+                  placeholder="e.g. Dr. Henderson"
+                  className="w-full px-3 py-2 text-xs rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white outline-none"
+                />
+              </div>
             </div>
 
-            <div>
-              <label className="block text-[11px] font-bold text-slate-500 mb-1">Day of Week</label>
-              <select
-                value={newSlotDay}
-                onChange={(e) => setNewSlotDay(e.target.value as DayOfWeek)}
-                className="w-full px-2.5 py-1.5 text-xs rounded bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white outline-none cursor-pointer"
-              >
-                {DAYS_FULL.map(d => <option key={d} value={d}>{d}</option>)}
-              </select>
-            </div>
-
-            <div>
-              <label className="block text-[11px] font-bold text-slate-500 mb-1">Color Code</label>
-              <select
-                value={newSlotColor}
-                onChange={(e) => setNewSlotColor(e.target.value)}
-                className="w-full px-2.5 py-1.5 text-xs rounded bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white outline-none cursor-pointer"
-              >
-                {PROFESSIONAL_COLORS.map(c => <option key={c.id} value={c.id}>{c.label}</option>)}
-              </select>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-            <div>
-              <label className="block text-[11px] font-bold text-slate-500 mb-1">Start Time</label>
-              <input
-                type="time"
-                required
-                value={newSlotStart}
-                onChange={(e) => setNewSlotStart(e.target.value)}
-                className="w-full px-2.5 py-1.5 text-xs font-mono rounded bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white outline-none"
-              />
-            </div>
-            <div>
-              <label className="block text-[11px] font-bold text-slate-500 mb-1">End Time</label>
-              <input
-                type="time"
-                required
-                value={newSlotEnd}
-                onChange={(e) => setNewSlotEnd(e.target.value)}
-                className="w-full px-2.5 py-1.5 text-xs font-mono rounded bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white outline-none"
-              />
-            </div>
-            <div>
-              <label className="block text-[11px] font-bold text-slate-500 mb-1">Event / Period Type</label>
-              <select
-                value={newSlotType}
-                onChange={(e) => setNewSlotType(e.target.value as any)}
-                className="w-full px-2.5 py-1.5 text-xs rounded bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white outline-none cursor-pointer"
-              >
-                <option value="Lecture">Lecture</option>
-                <option value="Exam">Exam / Test / Quiz</option>
-                <option value="Lab">Lab</option>
-                <option value="Tutorial">Tutorial</option>
-                <option value="Workshop">Workshop</option>
-                <option value="Study Block">Study Block</option>
-                <option value="Other">Other</option>
-              </select>
-            </div>
-            <div>
-              <label className="block text-[11px] font-bold text-slate-500 mb-1">Room / Hall</label>
-              <input
-                type="text"
-                value={newSlotRoom}
-                onChange={(e) => setNewSlotRoom(e.target.value)}
-                placeholder="e.g. Lab 201 or Hall B"
-                className="w-full px-2.5 py-1.5 text-xs rounded bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white outline-none"
-              />
-            </div>
-          </div>
-
-          <div className="flex items-center justify-between pt-1">
-            <label className="flex items-center space-x-2 text-xs text-slate-600 dark:text-slate-400 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={newSlotIsOccasional}
-                onChange={(e) => setNewSlotIsOccasional(e.target.checked)}
-                className="rounded border-slate-300 text-slate-900 focus:ring-0 cursor-pointer"
-              />
-              <span>Occasional / Non-recurring schedule entry</span>
-            </label>
-
-            <div className="flex space-x-2">
+            <div className="flex justify-end space-x-2 pt-2">
               <button
                 type="button"
-                onClick={() => setIsAddingPeriod(false)}
-                className="px-3 py-1.5 text-xs text-slate-500 hover:text-slate-900 cursor-pointer"
+                onClick={() => setActiveFormTab('none')}
+                className="px-4 py-2 text-xs font-bold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl"
               >
                 Cancel
               </button>
               <button
                 type="submit"
-                className="px-4 py-1.5 text-xs font-bold rounded-lg bg-slate-900 text-white dark:bg-white dark:text-slate-900 cursor-pointer"
+                className="px-5 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-500 rounded-xl shadow-sm cursor-pointer"
               >
-                Save to Calendar
+                Save Period to {selectedDateStr}
               </button>
             </div>
-          </div>
-        </form>
-      )}
+          </form>
+        )}
 
-      {/* ============================================================== */}
-      {/* 1. MONTH VIEW (Bigger View + Click any day for detail)          */}
-      {/* ============================================================== */}
-      {viewMode === 'month' && (
-        <div className="border border-slate-200 dark:border-slate-800 rounded-xl bg-white dark:bg-slate-900 overflow-hidden shadow-xs">
-          {/* Month Day Headers: Mon - Sun */}
-          <div className="grid grid-cols-7 border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/60 text-center text-xs font-bold py-2 text-slate-600 dark:text-slate-300">
-            {DAYS_FULL.map(d => (
-              <div key={d} className="hidden sm:block">{d}</div>
-            ))}
-            {DAYS_FULL.map(d => (
-              <div key={d + '-short'} className="sm:hidden">{d.slice(0, 3)}</div>
-            ))}
-          </div>
+        {/* ADD TASK COMPOSER (Inline expander) */}
+        {activeFormTab === 'task' && (
+          <form onSubmit={handleCreateTaskSubmit} className="p-5 bg-white dark:bg-slate-900 border-2 border-emerald-500/40 rounded-2xl shadow-md space-y-4 animate-fade-in">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
+              <div className="flex items-center space-x-2">
+                <div className="w-7 h-7 rounded-lg bg-emerald-100 dark:bg-emerald-900/60 flex items-center justify-center text-emerald-600 dark:text-emerald-400 font-bold">
+                  <CheckSquare className="w-4 h-4" />
+                </div>
+                <h4 className="text-sm font-extrabold text-slate-900 dark:text-white">
+                  Add Homework or Task Due on {selectedDateStr}
+                </h4>
+              </div>
+              <button 
+                type="button" 
+                onClick={() => setActiveFormTab('none')}
+                className="p-1 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
 
-          {/* 35/42 Grid Cells */}
-          <div className="grid grid-cols-7 divide-x divide-y divide-slate-100 dark:divide-slate-800 border-b border-slate-200 dark:border-slate-800">
-            {monthMatrix.map((cell, idx) => {
-              const { daySlots, dayTasks } = getItemsForDay(cell.dateStr, cell.dayOfWeekName);
-              const isSelected = selectedDayInfo?.dateStr === cell.dateStr;
+            <input
+              type="text"
+              required
+              autoFocus
+              value={newTaskTitle}
+              onChange={(e) => setNewTaskTitle(e.target.value)}
+              placeholder="Task title (e.g. Complete chapter 4 formula derivations)..."
+              className="w-full px-3.5 py-2.5 text-xs font-medium rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-emerald-500"
+            />
 
-              return (
-                <div
-                  key={idx}
-                  onClick={() => {
-                    setSelectedDayInfo({
-                      dateStr: cell.dateStr,
-                      dayOfWeekName: cell.dayOfWeekName,
-                      dateNumber: cell.dateNumber,
-                      monthName: cell.monthShort
-                    });
-                  }}
-                  onDoubleClick={() => handleDrillDownToWeek(cell.dateStr)}
-                  className={`min-h-[96px] sm:min-h-[115px] p-1.5 flex flex-col transition-all cursor-pointer relative group ${
-                    cell.isCurrentMonth
-                      ? 'bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800/50'
-                      : 'bg-slate-50/50 dark:bg-slate-950/40 text-slate-400'
-                  } ${
-                    isSelected ? 'ring-2 ring-inset ring-slate-900 dark:ring-white bg-slate-50/80 dark:bg-slate-800/40' : ''
-                  } ${
-                    cell.isToday && !isSelected ? 'ring-2 ring-inset ring-blue-500' : ''
-                  }`}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div>
+                <label className="block text-xs font-bold text-slate-600 dark:text-slate-300 mb-1">Subject</label>
+                <select
+                  value={newSubject}
+                  onChange={(e) => setNewSubject(e.target.value)}
+                  className="w-full px-3 py-2 text-xs font-semibold rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white outline-none"
                 >
-                  {/* Date badge */}
-                  <div className="flex items-center justify-between mb-1">
-                    <span
-                      className={`text-xs font-bold font-mono px-1.5 py-0.5 rounded ${
-                        cell.isToday
-                          ? 'bg-blue-600 text-white font-black'
-                          : isSelected
-                          ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900 font-bold'
-                          : cell.isCurrentMonth
-                          ? 'text-slate-800 dark:text-slate-200'
-                          : 'text-slate-400'
-                      }`}
-                    >
-                      {cell.dateNumber}
+                  {accountSubjects.map(s => (
+                    <option key={s.id} value={s.name}>{s.name}</option>
+                  ))}
+                  <option value="Physics">Physics</option>
+                  <option value="Maths">Maths</option>
+                  <option value="General Study">General Study</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-600 dark:text-slate-300 mb-1">Priority</label>
+                <select
+                  value={newTaskPriority}
+                  onChange={(e) => setNewTaskPriority(e.target.value as any)}
+                  className="w-full px-3 py-2 text-xs font-semibold rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white outline-none"
+                >
+                  <option value="High">● High Priority (Urgent)</option>
+                  <option value="Medium">● Medium Priority</option>
+                  <option value="Low">● Low Priority</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-600 dark:text-slate-300 mb-1">Due Time</label>
+                <input
+                  type="time"
+                  value={newTaskDueTime}
+                  onChange={(e) => setNewTaskDueTime(e.target.value)}
+                  className="w-full px-3 py-2 text-xs font-mono font-bold rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white outline-none"
+                />
+              </div>
+            </div>
+
+            <div className="flex justify-end space-x-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setActiveFormTab('none')}
+                className="px-4 py-2 text-xs font-bold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                className="px-5 py-2 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-500 rounded-xl shadow-sm cursor-pointer"
+              >
+                Create Task for {selectedDateStr}
+              </button>
+            </div>
+          </form>
+        )}
+
+        {/* Large 2-Column Day Studio Content */}
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
+          {/* LEFT COLUMN: ARCHITECTURAL TIMELINE & PERIODS (7 cols) */}
+          <div className="lg:col-span-7 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-3xl p-5 sm:p-6 shadow-sm">
+            <div className="flex items-center justify-between mb-4 pb-3 border-b border-slate-100 dark:border-slate-800">
+              <div className="flex items-center space-x-2">
+                <Clock className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                <h3 className="text-base font-extrabold text-slate-900 dark:text-white">
+                  Day Schedule ({daySlots.length})
+                </h3>
+              </div>
+
+              {/* View Switcher: Architectural Ruler vs Cards */}
+              <div className="flex items-center space-x-1 p-0.5 bg-slate-100 dark:bg-slate-800 rounded-xl text-xs font-bold">
+                <button
+                  type="button"
+                  onClick={() => setDayStudioMode('ruler')}
+                  className={`flex items-center space-x-1 px-2.5 py-1 rounded-lg transition-all cursor-pointer ${
+                    dayStudioMode === 'ruler'
+                      ? 'bg-white dark:bg-slate-700 text-blue-600 dark:text-blue-400 shadow-xs'
+                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                  }`}
+                  title="Architectural Time-Ruler View"
+                >
+                  <Compass className="w-3.5 h-3.5" />
+                  <span>Time Ruler</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setDayStudioMode('cards')}
+                  className={`flex items-center space-x-1 px-2.5 py-1 rounded-lg transition-all cursor-pointer ${
+                    dayStudioMode === 'cards'
+                      ? 'bg-white dark:bg-slate-700 text-blue-600 dark:text-blue-400 shadow-xs'
+                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                  }`}
+                  title="Chronological Cards View"
+                >
+                  <List className="w-3.5 h-3.5" />
+                  <span>Cards</span>
+                </button>
+              </div>
+            </div>
+
+            {/* ============================================================== */}
+            {/* SUBVIEW 1: ARCHITECTURAL HOURLY TIME-RULER (08:00 - 22:00)     */}
+            {/* ============================================================== */}
+            {dayStudioMode === 'ruler' && (
+              <div className="relative border border-slate-200/80 dark:border-slate-800 rounded-2xl bg-slate-50/40 dark:bg-slate-950/40 p-3 sm:p-4 overflow-hidden">
+                {/* Live Current Time Red Hairline Indicator (If viewing today) */}
+                {selectedDateStr === todayStr && livePercent >= 0 && livePercent <= 100 && (
+                  <div 
+                    className="absolute left-0 right-0 z-20 pointer-events-none flex items-center transition-all duration-500"
+                    style={{ top: `${livePercent}%` }}
+                  >
+                    <div className="w-3 h-3 rounded-full bg-rose-500 ring-4 ring-rose-500/20 shadow-md ml-1 -translate-y-1/2 shrink-0 animate-pulse" />
+                    <div className="h-[2px] flex-1 bg-gradient-to-r from-rose-500 to-rose-400/80 shadow-xs" />
+                    <span className="text-[10px] font-mono font-black text-rose-600 dark:text-rose-400 bg-white dark:bg-slate-900 px-2 py-0.5 rounded-full border border-rose-300 dark:border-rose-900 shadow-xs mr-2 -translate-y-1/2">
+                      NOW {new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                     </span>
-
-                    {(daySlots.length > 0 || dayTasks.length > 0) && (
-                      <span className="text-[10px] font-mono font-bold text-slate-400">
-                        {daySlots.length + dayTasks.length}
-                      </span>
-                    )}
                   </div>
+                )}
 
-                  {/* Micro list of periods and tasks inside month cell */}
-                  <div className="space-y-1 overflow-y-auto max-h-[76px]">
-                    {daySlots.slice(0, 3).map(slot => {
+                {/* 14 Hourly Horizontal Grid Rows */}
+                <div className="space-y-4">
+                  {RULER_HOURS.map((hour) => {
+                    const hourPrefix = `${String(hour).padStart(2, '0')}:`;
+                    const hourSlots = daySlots.filter(s => s.startTime.startsWith(hourPrefix));
+
+                    return (
+                      <div key={hour} className="relative flex items-start gap-3 min-h-[52px] group">
+                        {/* Hour Timestamp Column */}
+                        <div className="w-14 shrink-0 text-right font-mono text-xs font-bold text-slate-400 dark:text-slate-500 pt-0.5 select-none">
+                          {String(hour).padStart(2, '0')}:00
+                        </div>
+
+                        {/* Visual Timeline Canvas Row */}
+                        <div className="flex-1 border-t border-dashed border-slate-200 dark:border-slate-800 pt-1 pb-2">
+                          {hourSlots.length === 0 ? (
+                            <div className="h-6 opacity-0 group-hover:opacity-100 transition-opacity">
+                              <span className="text-[10px] font-mono text-slate-400 italic">
+                                Free time / Study block
+                              </span>
+                            </div>
+                          ) : (
+                            <div className="space-y-2">
+                              {hourSlots.map(slot => {
+                                const colorObj = getColorById(slot.color);
+                                return (
+                                  <div
+                                    key={slot.id}
+                                    className={`p-3 rounded-xl border transition-all ${colorObj.cardClasses} shadow-xs hover:shadow-md flex flex-col sm:flex-row sm:items-center justify-between gap-2`}
+                                  >
+                                    <div className="flex items-center space-x-2.5">
+                                      <span className={`px-2 py-0.5 rounded-md font-mono text-xs font-bold ${colorObj.badgeBg} ${colorObj.badgeText}`}>
+                                        {slot.startTime} - {slot.endTime}
+                                      </span>
+                                      <span className="font-extrabold text-xs text-slate-900 dark:text-white">
+                                        {slot.subject}
+                                      </span>
+                                      <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-white/70 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
+                                        {slot.type}
+                                      </span>
+                                    </div>
+
+                                    <div className="flex items-center space-x-2 text-xs text-slate-500">
+                                      {slot.location && (
+                                        <span className="flex items-center space-x-1">
+                                          <MapPin className="w-3 h-3 text-slate-400" />
+                                          <span className="text-[11px] font-medium">{slot.location}</span>
+                                        </span>
+                                      )}
+                                      <button
+                                        onClick={() => onDeleteSlot(slot.id)}
+                                        className="p-1 hover:text-rose-500 text-slate-400 transition-colors"
+                                        title="Delete period"
+                                      >
+                                        <Trash2 className="w-3 h-3" />
+                                      </button>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* ============================================================== */}
+            {/* SUBVIEW 2: CHRONOLOGICAL CARDS VIEW                             */}
+            {/* ============================================================== */}
+            {dayStudioMode === 'cards' && (
+              <div>
+                {daySlots.length === 0 ? (
+                  <div className="py-12 px-4 text-center rounded-2xl border-2 border-dashed border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/30">
+                    <CalendarIcon className="w-8 h-8 mx-auto text-slate-300 dark:text-slate-600 mb-2" />
+                    <p className="text-sm font-bold text-slate-700 dark:text-slate-300">No classes scheduled for this day</p>
+                    <p className="text-xs text-slate-400 mt-1 mb-4">Click below to add your lecture, lab, or exam block.</p>
+                    <button
+                      onClick={() => setActiveFormTab('slot')}
+                      className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold transition-all shadow-sm cursor-pointer inline-flex items-center space-x-1"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      <span>Add First Period</span>
+                    </button>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {daySlots.map(slot => {
                       const colorObj = getColorById(slot.color);
                       return (
                         <div
                           key={slot.id}
-                          className={`px-1.5 py-0.5 rounded text-[10px] font-semibold truncate ${colorObj.badgeBg} ${colorObj.badgeText} flex items-center space-x-1`}
-                          title={`${slot.subject} (${slot.startTime})`}
+                          className={`p-4 rounded-2xl border transition-all ${colorObj.cardClasses} hover:shadow-md flex flex-col sm:flex-row sm:items-center justify-between gap-3 group`}
                         >
-                          {slot.type === 'Exam' && <span className="font-bold">⚡</span>}
-                          <span className="truncate">{slot.startTime} {slot.subject}</span>
+                          <div className="flex items-start space-x-3">
+                            <div className={`px-2.5 py-1.5 rounded-xl font-mono text-xs font-bold shrink-0 ${colorObj.badgeBg} ${colorObj.badgeText}`}>
+                              {slot.startTime} - {slot.endTime}
+                            </div>
+                            <div>
+                              <div className="flex items-center space-x-2">
+                                <span className="text-sm font-extrabold text-slate-900 dark:text-white">
+                                  {slot.subject}
+                                </span>
+                                <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-white/70 dark:bg-slate-800 text-slate-700 dark:text-slate-300 shadow-2xs">
+                                  ● {slot.type}
+                                </span>
+                              </div>
+                              {(slot.location || slot.instructor) && (
+                                <div className="flex items-center space-x-3 mt-1 text-xs text-slate-500 dark:text-slate-400">
+                                  {slot.location && (
+                                    <span className="flex items-center space-x-1">
+                                      <MapPin className="w-3 h-3" />
+                                      <span>{slot.location}</span>
+                                    </span>
+                                  )}
+                                  {slot.instructor && (
+                                    <span className="flex items-center space-x-1">
+                                      <User className="w-3 h-3" />
+                                      <span>{slot.instructor}</span>
+                                    </span>
+                                  )}
+                                </div>
+                              )}
+                              {slot.notes && (
+                                <p className="text-xs text-slate-600 dark:text-slate-300 mt-1.5 italic">
+                                  "{slot.notes}"
+                                </p>
+                              )}
+                            </div>
+                          </div>
+
+                          <div className="flex items-center space-x-1 self-end sm:self-center opacity-80 group-hover:opacity-100 transition-opacity">
+                            <button
+                              onClick={() => onEditSlot(slot)}
+                              className="p-1.5 rounded-lg hover:bg-white/80 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 transition-colors"
+                              title="Edit details"
+                            >
+                              <Clock className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              onClick={() => onDeleteSlot(slot.id)}
+                              className="p-1.5 rounded-lg hover:bg-rose-100 dark:hover:bg-rose-950/60 text-slate-400 hover:text-rose-600 transition-colors"
+                              title="Remove period"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
                         </div>
                       );
                     })}
-
-                    {dayTasks.slice(0, 2).map(task => (
-                      <div
-                        key={task.id}
-                        className={`px-1.5 py-0.5 rounded text-[10px] font-medium truncate flex items-center space-x-1 ${
-                          task.status === 'completed'
-                            ? 'bg-slate-100 dark:bg-slate-800 text-slate-400 line-through'
-                            : 'bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900'
-                        }`}
-                        title={task.title}
-                      >
-                        <span className="truncate">✓ {task.title}</span>
-                      </div>
-                    ))}
-
-                    {daySlots.length + dayTasks.length > 3 && (
-                      <div className="text-[9px] text-slate-400 font-semibold pl-1">
-                        +{daySlots.length + dayTasks.length - 3} more
-                      </div>
-                    )}
                   </div>
+                )}
+              </div>
+            )}
+          </div>
 
-                  {/* Subtle drilldown indicator on hover */}
-                  <div className="hidden group-hover:block absolute bottom-1 right-1 text-[9px] font-semibold text-slate-400">
-                    Click detail
-                  </div>
+          {/* RIGHT COLUMN: TASKS DUE ON THIS DAY (5 cols) */}
+          <div className="lg:col-span-5 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-3xl p-5 sm:p-6 shadow-sm flex flex-col justify-between">
+            <div>
+              <div className="flex items-center justify-between mb-4 pb-3 border-b border-slate-100 dark:border-slate-800">
+                <div className="flex items-center space-x-2">
+                  <CheckSquare className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                  <h3 className="text-base font-extrabold text-slate-900 dark:text-white">
+                    Day Deadlines ({dayTasks.length})
+                  </h3>
                 </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      {/* ============================================================== */}
-      {/* 2. WEEK VIEW (DETAIL VIEW WITH BOX-CARD GRID FOR DESKTOP/MOBILE) */}
-      {/* ============================================================== */}
-      {viewMode === 'week' && (
-        <div className="space-y-3">
-          <div className="flex items-center justify-between px-1">
-            <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">
-              Weekly Detailed Breakdown (7 Days)
-            </span>
-            <button
-              onClick={() => setViewMode('month')}
-              className="text-xs font-bold text-blue-600 dark:text-blue-400 hover:underline cursor-pointer"
-            >
-              ← Back to Month Overview
-            </button>
-          </div>
-
-          {/* Responsive Box-Type Cards (Grid of cards rather than long stretched columns) */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
-            {weekDays.map(w => {
-              const { daySlots, dayTasks } = getItemsForDay(w.fullDateStr, w.dayName);
-              const isSelected = selectedDayInfo?.dateStr === w.fullDateStr;
-
-              return (
-                <div
-                  key={w.dayName}
-                  onClick={() => {
-                    setSelectedDayInfo({
-                      dateStr: w.fullDateStr,
-                      dayOfWeekName: w.dayName,
-                      dateNumber: w.dateNumber,
-                      monthName: w.monthShort
-                    });
-                  }}
-                  className={`border rounded-xl bg-white dark:bg-slate-900 flex flex-col p-3 shadow-xs transition-all cursor-pointer ${
-                    isSelected
-                      ? 'border-slate-900 dark:border-white ring-2 ring-slate-900/20 dark:ring-white/20'
-                      : w.isToday
-                      ? 'border-blue-500 dark:border-blue-500 ring-2 ring-blue-500/20'
-                      : 'border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700'
-                  }`}
+                <button
+                  onClick={() => setActiveFormTab('task')}
+                  className="text-xs font-bold text-emerald-600 dark:text-emerald-400 hover:underline flex items-center space-x-1"
                 >
-                  {/* Card Header */}
-                  <div className="flex items-center justify-between pb-2 mb-2 border-b border-slate-100 dark:border-slate-800">
-                    <div className="flex items-center space-x-2">
-                      <span className={`w-7 h-7 rounded-lg font-mono text-xs font-bold flex items-center justify-center ${
-                        w.isToday 
-                          ? 'bg-blue-600 text-white' 
-                          : isSelected
-                          ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900'
-                          : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300'
-                      }`}>
-                        {w.dateNumber}
-                      </span>
-                      <div>
-                        <div className="text-xs font-bold text-slate-900 dark:text-white leading-tight">
-                          {w.dayName}
-                        </div>
-                        <div className="text-[10px] text-slate-400">
-                          {w.monthShort} {w.dateNumber}
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="flex items-center space-x-1">
-                      <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 font-bold">
-                        {daySlots.length + dayTasks.length} items
-                      </span>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setNewSlotDate(w.fullDateStr);
-                          setNewSlotDay(w.dayName);
-                          setIsAddingPeriod(true);
-                        }}
-                        className="p-1 rounded text-slate-400 hover:text-slate-900 dark:hover:text-white cursor-pointer"
-                        title="Add period to this day"
-                      >
-                        <Plus className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Scheduled Box Cards List */}
-                  <div className="space-y-2 flex-1 min-h-[140px]">
-                    {daySlots.length === 0 && dayTasks.length === 0 ? (
-                      <div className="h-full flex flex-col items-center justify-center text-center p-3 text-slate-400">
-                        <span className="text-xs">No entries scheduled</span>
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setNewSlotDate(w.fullDateStr);
-                            setNewSlotDay(w.dayName);
-                            setIsAddingPeriod(true);
-                          }}
-                          className="mt-1 text-[11px] font-bold text-blue-600 dark:text-blue-400 hover:underline cursor-pointer"
-                        >
-                          + Add entry
-                        </button>
-                      </div>
-                    ) : (
-                      <>
-                        {/* Timetable / Calendar Events */}
-                        {daySlots.map(slot => {
-                          const colorObj = getColorById(slot.color);
-                          return (
-                            <div
-                              key={slot.id}
-                              className={`p-2.5 rounded-lg border text-xs transition-shadow hover:shadow-xs group relative ${colorObj.cardClasses}`}
-                            >
-                              <div className="flex items-start justify-between">
-                                <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${colorObj.badgeBg} ${colorObj.badgeText}`}>
-                                  {slot.type}
-                                </span>
-                                <div className="opacity-0 group-hover:opacity-100 transition-opacity flex items-center space-x-1">
-                                  <button
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      onEditSlot(slot);
-                                    }}
-                                    className="p-0.5 text-slate-500 hover:text-slate-900 dark:hover:text-white cursor-pointer"
-                                    title="Edit slot"
-                                  >
-                                    <Edit3 className="w-3 h-3" />
-                                  </button>
-                                  <button
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      onDeleteSlot(slot.id);
-                                    }}
-                                    className="p-0.5 text-slate-400 hover:text-red-600 cursor-pointer"
-                                    title="Delete slot"
-                                  >
-                                    <Trash2 className="w-3 h-3" />
-                                  </button>
-                                </div>
-                              </div>
-
-                              <div className="font-bold text-xs mt-1 text-slate-900 dark:text-white leading-tight">
-                                {slot.subject}
-                              </div>
-
-                              <div className="flex items-center space-x-1 text-[10px] text-slate-600 dark:text-slate-300 mt-1 font-mono">
-                                <Clock className="w-2.5 h-2.5 shrink-0" />
-                                <span>{slot.startTime} - {slot.endTime}</span>
-                              </div>
-
-                              {slot.location && (
-                                <div className="flex items-center space-x-1 text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">
-                                  <MapPin className="w-2.5 h-2.5 shrink-0" />
-                                  <span className="truncate">{slot.location}</span>
-                                </div>
-                              )}
-                            </div>
-                          );
-                        })}
-
-                        {/* Due Tasks on this Date */}
-                        {dayTasks.map(task => (
-                          <div
-                            key={task.id}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              onToggleTask(task.id);
-                            }}
-                            className={`p-2 rounded-lg border flex items-center justify-between text-xs transition-colors cursor-pointer ${
-                              task.status === 'completed'
-                                ? 'bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-400 line-through'
-                                : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white font-medium'
-                            }`}
-                          >
-                            <div className="flex items-center space-x-2 truncate">
-                              <span className={`w-3.5 h-3.5 rounded border flex items-center justify-center shrink-0 ${
-                                task.status === 'completed' ? 'bg-emerald-600 text-white border-emerald-600' : 'border-slate-300 dark:border-slate-600'
-                              }`}>
-                                {task.status === 'completed' && <Check className="w-2.5 h-2.5 stroke-[3]" />}
-                              </span>
-                              <span className="truncate">{task.title}</span>
-                            </div>
-                            <span className="text-[10px] text-slate-400 font-mono ml-1 shrink-0">
-                              {task.dueTime || 'Due'}
-                            </span>
-                          </div>
-                        ))}
-                      </>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      {/* ============================================================== */}
-      {/* 3. INTEGRATED DAY DETAIL INSPECTOR DRAWER                       */}
-      {/* ("If you click the day you will have every detail about it")     */}
-      {/* ============================================================== */}
-      {selectedDayInfo && selectedDayItems && (
-        <div className="border border-slate-200 dark:border-slate-800 rounded-xl bg-white dark:bg-slate-900 p-4 shadow-sm animate-fade-in">
-          <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
-            <div className="flex items-center space-x-3">
-              <div className="w-10 h-10 rounded-xl bg-slate-900 text-white dark:bg-white dark:text-slate-900 flex flex-col items-center justify-center font-mono font-bold">
-                <span className="text-[10px] leading-tight font-sans uppercase">
-                  {selectedDayInfo.dayOfWeekName.slice(0, 3)}
-                </span>
-                <span className="text-sm leading-tight">
-                  {selectedDayInfo.dateNumber}
-                </span>
-              </div>
-              <div>
-                <h3 className="text-sm font-bold text-slate-900 dark:text-white flex items-center space-x-2">
-                  <span>Day Inspector: {selectedDayInfo.dayOfWeekName}, {selectedDayInfo.monthName} {selectedDayInfo.dateNumber}</span>
-                  <span className="text-xs font-mono font-normal text-slate-400">({selectedDayInfo.dateStr})</span>
-                </h3>
-                <p className="text-xs text-slate-500 dark:text-slate-400">
-                  Detailed itinerary: {selectedDayItems.daySlots.length} schedule periods, {selectedDayItems.dayTasks.length} tasks due
-                </p>
-              </div>
-            </div>
-
-            <div className="flex items-center space-x-2">
-              <button
-                onClick={() => handleDrillDownToWeek(selectedDayInfo.dateStr)}
-                className="px-3 py-1.5 rounded-lg text-xs font-bold border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 cursor-pointer"
-              >
-                Go to this week →
-              </button>
-              <button
-                onClick={() => {
-                  setNewSlotDate(selectedDayInfo.dateStr);
-                  setNewSlotDay(selectedDayInfo.dayOfWeekName);
-                  setIsAddingPeriod(true);
-                }}
-                className="px-3 py-1.5 rounded-lg text-xs font-bold bg-slate-900 text-white dark:bg-white dark:text-slate-900 cursor-pointer"
-              >
-                + Add item to this day
-              </button>
-            </div>
-          </div>
-
-          <div className="pt-3 grid grid-cols-1 md:grid-cols-2 gap-4">
-            {/* Left: Schedule Events */}
-            <div className="space-y-2">
-              <div className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center space-x-1.5">
-                <Clock className="w-3.5 h-3.5" />
-                <span>Schedule & Classes ({selectedDayItems.daySlots.length})</span>
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>Add Task</span>
+                </button>
               </div>
 
-              {selectedDayItems.daySlots.length === 0 ? (
-                <div className="p-4 rounded-lg bg-slate-50 dark:bg-slate-800/40 text-center text-xs text-slate-400">
-                  No periods or classes scheduled on this day.
+              {dayTasks.length === 0 ? (
+                <div className="py-12 px-4 text-center rounded-2xl border-2 border-dashed border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/30">
+                  <CheckSquare className="w-8 h-8 mx-auto text-slate-300 dark:text-slate-600 mb-2" />
+                  <p className="text-sm font-bold text-slate-700 dark:text-slate-300">No tasks due on this date</p>
+                  <p className="text-xs text-slate-400 mt-1 mb-4">Add homework, problem sets, or study milestones.</p>
+                  <button
+                    onClick={() => setActiveFormTab('task')}
+                    className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition-all shadow-sm cursor-pointer inline-flex items-center space-x-1"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>Add Day Task</span>
+                  </button>
                 </div>
               ) : (
-                <div className="space-y-2">
-                  {selectedDayItems.daySlots.map(slot => {
-                    const colorObj = getColorById(slot.color);
+                <div className="space-y-2.5">
+                  {dayTasks.map(task => {
+                    const isCompleted = task.status === 'completed';
                     return (
                       <div
-                        key={slot.id}
-                        className={`p-3 rounded-xl border flex items-center justify-between ${colorObj.cardClasses}`}
+                        key={task.id}
+                        onClick={() => onToggleTask(task.id)}
+                        className={`p-3.5 rounded-2xl border transition-all cursor-pointer flex items-center justify-between ${
+                          isCompleted
+                            ? 'bg-slate-50/80 dark:bg-slate-800/40 border-slate-200 dark:border-slate-800 opacity-60'
+                            : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700 hover:border-emerald-400 shadow-2xs'
+                        }`}
                       >
-                        <div>
-                          <div className="flex items-center space-x-2">
-                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${colorObj.badgeBg} ${colorObj.badgeText}`}>
-                              {slot.type}
-                            </span>
-                            <span className="font-mono text-xs font-bold text-slate-900 dark:text-white">
-                              {slot.startTime} – {slot.endTime}
-                            </span>
-                            {slot.date && (
-                              <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-slate-200/60 dark:bg-slate-700/60 text-slate-600 dark:text-slate-300">
-                                Date-specific
-                              </span>
-                            )}
+                        <div className="flex items-center space-x-3">
+                          <div className={`w-5 h-5 rounded-lg border flex items-center justify-center transition-colors ${
+                            isCompleted
+                              ? 'bg-emerald-600 border-emerald-600 text-white'
+                              : 'border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800'
+                          }`}>
+                            {isCompleted && <Check className="w-3.5 h-3.5" />}
                           </div>
-                          <div className="text-sm font-bold text-slate-900 dark:text-white mt-1">
-                            {slot.subject}
+                          <div>
+                            <p className={`text-xs font-bold ${
+                              isCompleted
+                                ? 'line-through text-slate-400 dark:text-slate-500'
+                                : 'text-slate-900 dark:text-white'
+                            }`}>
+                              {task.title}
+                            </p>
+                            <div className="flex items-center space-x-2 mt-0.5 text-[10px] text-slate-500">
+                              {task.subject && <span className="font-semibold text-blue-600 dark:text-blue-400">{task.subject}</span>}
+                              {task.dueTime && <span>• Due {task.dueTime}</span>}
+                            </div>
                           </div>
-                          {slot.location && (
-                            <div className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 flex items-center space-x-1">
-                              <MapPin className="w-3 h-3" />
-                              <span>{slot.location}</span>
-                            </div>
-                          )}
-                          {slot.notes && (
-                            <div className="text-xs text-slate-500 dark:text-slate-400 mt-1 italic">
-                              "{slot.notes}"
-                            </div>
-                          )}
                         </div>
 
-                        <div className="flex items-center space-x-1">
-                          <button
-                            onClick={() => onEditSlot(slot)}
-                            className="p-1.5 rounded hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 cursor-pointer"
-                            title="Edit"
-                          >
-                            <Edit3 className="w-3.5 h-3.5" />
-                          </button>
-                          <button
-                            onClick={() => onDeleteSlot(slot.id)}
-                            className="p-1.5 rounded hover:bg-slate-200 dark:hover:bg-slate-700 text-red-500 cursor-pointer"
-                            title="Delete"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
+                        <span className={`text-[9px] font-mono font-bold px-2 py-0.5 rounded-md flex items-center space-x-1 ${
+                          task.priority === 'High'
+                            ? 'bg-rose-100 text-rose-700 dark:bg-rose-950 dark:text-rose-300'
+                            : task.priority === 'Medium'
+                            ? 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300'
+                            : 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300'
+                        }`}>
+                          <span className={`w-1.5 h-1.5 rounded-full ${task.priority === 'High' ? 'bg-rose-500' : task.priority === 'Medium' ? 'bg-amber-500' : 'bg-slate-400'}`} />
+                          <span>{task.priority}</span>
+                        </span>
                       </div>
                     );
                   })}
@@ -1023,56 +944,198 @@ export const CalendarScheduleView: React.FC<CalendarScheduleViewProps> = ({
               )}
             </div>
 
-            {/* Right: Tasks Due on this Date */}
-            <div className="space-y-2">
-              <div className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center space-x-1.5">
-                <Check className="w-3.5 h-3.5" />
-                <span>Due Tasks & Deadlines ({selectedDayItems.dayTasks.length})</span>
-              </div>
-
-              {selectedDayItems.dayTasks.length === 0 ? (
-                <div className="p-4 rounded-lg bg-slate-50 dark:bg-slate-800/40 text-center text-xs text-slate-400">
-                  No tasks or assignment deadlines due on this day.
-                </div>
-              ) : (
-                <div className="space-y-2">
-                  {selectedDayItems.dayTasks.map(task => (
-                    <div
-                      key={task.id}
-                      onClick={() => onToggleTask(task.id)}
-                      className={`p-3 rounded-xl border flex items-center justify-between text-xs transition-colors cursor-pointer ${
-                        task.status === 'completed'
-                          ? 'bg-slate-50 dark:bg-slate-800/40 border-slate-200 dark:border-slate-800 text-slate-400 line-through'
-                          : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white font-medium'
-                      }`}
-                    >
-                      <div className="flex items-center space-x-2.5">
-                        <span className={`w-4 h-4 rounded border flex items-center justify-center shrink-0 ${
-                          task.status === 'completed'
-                            ? 'bg-emerald-600 text-white border-emerald-600'
-                            : 'border-slate-300 dark:border-slate-600'
-                        }`}>
-                          {task.status === 'completed' && <Check className="w-3 h-3 stroke-[3]" />}
-                        </span>
-                        <div>
-                          <div className="font-bold text-xs">{task.title}</div>
-                          {task.subject && (
-                            <div className="text-[10px] text-slate-400">{task.subject} • {task.category}</div>
-                          )}
-                        </div>
-                      </div>
-
-                      <span className="text-[10px] font-mono text-slate-400">
-                        {task.dueTime || 'All Day'}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              )}
+            {/* Quick footer action */}
+            <div className="mt-6 pt-4 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-xs text-slate-400">
+              <span className="flex items-center space-x-1">
+                <span className="w-2 h-2 rounded-full bg-emerald-500" />
+                <span>Isolated workspace</span>
+              </span>
+              <button
+                onClick={() => setSelectedDateStr(null)}
+                className="font-bold text-blue-600 dark:text-blue-400 hover:underline cursor-pointer"
+              >
+                Back to Month Grid →
+              </button>
             </div>
           </div>
         </div>
-      )}
+      </div>
+    );
+  }
+
+  // =========================================================================
+  // VIEW MODE B: CLEAN, SPACIOUS MONTH VIEW ("make the month look only")
+  // =========================================================================
+  return (
+    <div className="space-y-4 animate-fade-in">
+      {/* Month Architectural Header */}
+      <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 p-4 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-3xl shadow-xs">
+        <div className="flex items-center space-x-3">
+          <button
+            onClick={goToToday}
+            className="px-3.5 py-1.5 text-xs font-bold rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-slate-100 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors cursor-pointer"
+          >
+            Today
+          </button>
+
+          <div className="flex items-center space-x-1">
+            <button
+              onClick={prevMonth}
+              className="p-1.5 rounded-xl border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 transition-colors cursor-pointer"
+              title="Previous Month"
+            >
+              <ChevronLeft className="w-4 h-4" />
+            </button>
+            <button
+              onClick={nextMonth}
+              className="p-1.5 rounded-xl border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 transition-colors cursor-pointer"
+              title="Next Month"
+            >
+              <ChevronRight className="w-4 h-4" />
+            </button>
+          </div>
+
+          <h2 className="text-base sm:text-lg font-black text-slate-900 dark:text-white tracking-tight ml-2">
+            {monthTitle}
+          </h2>
+        </div>
+
+        {/* Quick subject filter pills + Export iCal */}
+        <div className="flex items-center space-x-2 overflow-x-auto pb-1 sm:pb-0">
+          <button
+            onClick={() => exportToICS(slots, tasks, account.name)}
+            className="flex items-center space-x-1 px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 text-xs font-bold transition-all cursor-pointer whitespace-nowrap shadow-2xs"
+            title="Download iCalendar file (.ics) for Apple/Google Calendar"
+          >
+            <Download className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
+            <span className="hidden md:inline">Sync iCal (.ics)</span>
+          </button>
+
+          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mr-1 hidden md:inline">
+            Filter:
+          </span>
+          <button
+            onClick={() => setActiveSubjectFilter('ALL')}
+            className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-colors cursor-pointer whitespace-nowrap ${
+              activeSubjectFilter === 'ALL'
+                ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900'
+                : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200'
+            }`}
+          >
+            All
+          </button>
+          {accountSubjects.slice(0, 4).map(sub => (
+            <button
+              key={sub.id}
+              onClick={() => setActiveSubjectFilter(activeSubjectFilter === sub.name ? 'ALL' : sub.name)}
+              className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-colors cursor-pointer whitespace-nowrap ${
+                activeSubjectFilter === sub.name
+                  ? 'bg-blue-600 text-white shadow-xs'
+                  : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200'
+              }`}
+            >
+              {sub.name}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Spacious Full-Width Month Calendar Grid */}
+      <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-3xl p-4 sm:p-5 shadow-sm relative overflow-hidden">
+        {/* Days of week header */}
+        <div className="grid grid-cols-7 gap-2 mb-3 border-b border-slate-100 dark:border-slate-800 pb-3">
+          {DAYS_SHORT.map(d => (
+            <div key={d} className="text-center text-xs font-mono font-bold text-slate-400 uppercase tracking-wider">
+              {d}
+            </div>
+          ))}
+        </div>
+
+        {/* 35 or 42 Month Date Cells */}
+        <div className="grid grid-cols-7 gap-1.5 sm:gap-2.5">
+          {cells.map((cell) => {
+            const { daySlots, dayTasks } = getItemsForDate(cell.dateStr);
+            const hasItems = daySlots.length > 0 || dayTasks.length > 0;
+
+            return (
+              <button
+                type="button"
+                key={cell.dateStr}
+                onClick={() => setSelectedDateStr(cell.dateStr)}
+                className={`min-h-[96px] sm:min-h-[120px] p-2 sm:p-2.5 rounded-2xl border transition-all cursor-pointer relative flex flex-col justify-between text-left w-full group hover:shadow-md hover:-translate-y-0.5 focus:outline-none focus:ring-2 focus:ring-blue-500/40 ${
+                  cell.isToday
+                    ? 'border-blue-500/80 bg-blue-50/40 dark:bg-blue-950/30 ring-1 ring-blue-500/20'
+                    : cell.isCurrentMonth
+                    ? 'border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-900 hover:border-blue-400 dark:hover:border-blue-500'
+                    : 'border-transparent bg-slate-50/30 dark:bg-slate-950/30 opacity-35'
+                }`}
+              >
+                {/* Top Row: Date Number and count badge */}
+                <div className="flex items-center justify-between w-full">
+                  <span
+                    className={`text-xs font-mono font-bold w-6 h-6 rounded-lg flex items-center justify-center transition-colors ${
+                      cell.isToday
+                        ? 'bg-blue-600 text-white font-black shadow-xs'
+                        : cell.isCurrentMonth
+                        ? 'text-slate-800 dark:text-slate-200 group-hover:text-blue-600 dark:group-hover:text-blue-400'
+                        : 'text-slate-400'
+                    }`}
+                  >
+                    {cell.dateNumber}
+                  </span>
+
+                  {hasItems && (
+                    <span className="text-[10px] font-mono font-bold px-1.5 py-0.5 rounded-md bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300">
+                      {daySlots.length + dayTasks.length}
+                    </span>
+                  )}
+                </div>
+
+                {/* Micro preview pills with designer tag styling */}
+                <div className="space-y-1 my-1 overflow-hidden w-full">
+                  {daySlots.slice(0, 3).map(slot => {
+                    const colorObj = getColorById(slot.color);
+                    return (
+                      <div
+                        key={slot.id}
+                        className={`px-2 py-0.5 rounded-lg text-[9px] sm:text-[10px] font-bold flex items-center space-x-1.5 border border-slate-200/60 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-800/80 shadow-2xs group-hover:border-blue-300 dark:group-hover:border-blue-700 transition-colors`}
+                        title={`${slot.startTime} - ${slot.endTime} • ${slot.subject} (${slot.type})`}
+                      >
+                        <span className={`w-2 h-2 rounded-full ${colorObj.badgeBg} shrink-0 ring-1 ring-white dark:ring-slate-900`} />
+                        <span className="font-mono text-[8px] sm:text-[9px] text-slate-500 dark:text-slate-400 shrink-0">{slot.startTime}</span>
+                        <span className="truncate text-slate-900 dark:text-slate-100 font-extrabold">{slot.subject}</span>
+                      </div>
+                    );
+                  })}
+
+                  {dayTasks.slice(0, 1).map(task => (
+                    <div
+                      key={task.id}
+                      className="px-2 py-0.5 rounded-lg text-[9px] sm:text-[10px] truncate flex items-center space-x-1.5 bg-emerald-50 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300 font-bold border border-emerald-200/60 dark:border-emerald-800/60"
+                      title={task.title}
+                    >
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
+                      <span className="truncate">✓ {task.title}</span>
+                    </div>
+                  ))}
+
+                  {daySlots.length + dayTasks.length > 4 && (
+                    <div className="text-[9px] font-mono text-blue-600 dark:text-blue-400 font-bold pl-1">
+                      +{daySlots.length + dayTasks.length - 4} more
+                    </div>
+                  )}
+                </div>
+
+                {/* Bottom hint: Click to open large area */}
+                <div className="text-[9px] font-black text-blue-600 dark:text-blue-400 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-between w-full pt-1 border-t border-slate-100 dark:border-slate-800/60">
+                  <span>Open Day Studio</span>
+                  <span>→</span>
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      </div>
     </div>
   );
 };

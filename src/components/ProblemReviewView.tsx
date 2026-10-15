@@ -157,68 +157,64 @@ export const ProblemReviewView: React.FC<ProblemReviewViewProps> = ({
   const resolvedCount = problems.filter(p => p.status === 'Resolved').length;
 
   return (
-    <div className="space-y-6 animate-fade-in">
+    <div className="space-y-6 animate-fade-in max-w-5xl mx-auto">
       {/* Top Banner & Motivation */}
-      <div className="p-5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-        <div>
-          <div className="flex items-center space-x-2">
-            <span className="w-2.5 h-2.5 rounded-full bg-rose-600"></span>
-            <h1 className="text-lg font-bold text-slate-900 dark:text-white">
-              Problem & Academic Review Log
-            </h1>
+      <div className="p-6 rounded-3xl bg-gradient-to-r from-rose-600 via-pink-600 to-purple-600 text-white shadow-lg flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 relative overflow-hidden">
+        <div className="relative z-10">
+          <div className="flex items-center space-x-2 text-xs font-mono font-bold uppercase tracking-wider text-rose-100 mb-1">
+            <span className="w-2 h-2 rounded-full bg-white animate-pulse" />
+            <span>Blocker Diagnostic Hub</span>
           </div>
-          <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 max-w-xl">
-            Whenever you face any difficulty (in Physics, Maths, schedule clashes, or study roadblocks), log it here. Save your action plan and update your progress later when you overcome it.
+          <h1 className="text-2xl sm:text-3xl font-black tracking-tight text-white">
+            Problem & Difficulty Reviews
+          </h1>
+          <p className="text-xs text-rose-100 mt-1 max-w-xl">
+            Track roadblocks, challenging textbook formulas, and schedule clashes. Log step-by-step action plans to overcome academic hurdles.
           </p>
         </div>
 
         <button
           onClick={openCreateModal}
-          className="flex items-center space-x-2 px-4 py-2.5 rounded-xl bg-slate-900 text-white dark:bg-white dark:text-slate-900 font-bold text-xs hover:opacity-90 transition-opacity cursor-pointer shadow-xs shrink-0"
+          className="relative z-10 flex items-center space-x-2 px-4 py-2.5 rounded-xl bg-white text-rose-900 font-extrabold text-xs hover:bg-rose-50 transition-all cursor-pointer shadow-sm shrink-0"
         >
-          <Plus className="w-4 h-4" />
-          <span>Log a Problem / Blocker</span>
+          <Plus className="w-4 h-4 text-rose-600" />
+          <span>Log New Blocker</span>
         </button>
       </div>
 
-      {/* Metrics Row */}
-      <div className="grid grid-cols-3 gap-3">
-        <div className="p-4 rounded-xl border border-rose-200 dark:border-rose-900/40 bg-rose-50/50 dark:bg-rose-950/20">
-          <div className="text-[11px] font-bold uppercase tracking-wider text-rose-700 dark:text-rose-400">
-            Active Blockers
+      {/* Summary KPI Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <div className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 shadow-xs flex items-center justify-between">
+          <div>
+            <div className="text-[11px] font-bold text-slate-500 dark:text-slate-400">Active Roadblocks</div>
+            <div className="text-2xl font-black font-mono text-rose-600 dark:text-rose-400 mt-0.5">{activeCount}</div>
           </div>
-          <div className="text-2xl font-black text-rose-950 dark:text-rose-200 mt-1">
-            {activeCount}
-          </div>
-          <div className="text-[10px] text-rose-600/80 dark:text-rose-400/80 mt-0.5">
-            Needs attention & action plan
+          <div className="w-10 h-10 rounded-xl bg-rose-50 dark:bg-rose-950/60 flex items-center justify-center text-rose-600 dark:text-rose-400">
+            <AlertCircle className="w-5 h-5" />
           </div>
         </div>
 
-        <div className="p-4 rounded-xl border border-amber-200 dark:border-amber-900/40 bg-amber-50/50 dark:bg-amber-950/20">
-          <div className="text-[11px] font-bold uppercase tracking-wider text-amber-700 dark:text-amber-400">
-            Under Review
+        <div className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 shadow-xs flex items-center justify-between">
+          <div>
+            <div className="text-[11px] font-bold text-slate-500 dark:text-slate-400">Under Review / Progress</div>
+            <div className="text-2xl font-black font-mono text-amber-600 dark:text-amber-400 mt-0.5">{underReviewCount}</div>
           </div>
-          <div className="text-2xl font-black text-amber-950 dark:text-amber-200 mt-1">
-            {underReviewCount}
-          </div>
-          <div className="text-[10px] text-amber-600/80 dark:text-amber-400/80 mt-0.5">
-            Currently working on fix
+          <div className="w-10 h-10 rounded-xl bg-amber-50 dark:bg-amber-950/60 flex items-center justify-center text-amber-600 dark:text-amber-400">
+            <Clock className="w-5 h-5" />
           </div>
         </div>
 
-        <div className="p-4 rounded-xl border border-emerald-200 dark:border-emerald-900/40 bg-emerald-50/50 dark:bg-emerald-950/20">
-          <div className="text-[11px] font-bold uppercase tracking-wider text-emerald-700 dark:text-emerald-400">
-            Resolved & Overcome
+        <div className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 shadow-xs flex items-center justify-between">
+          <div>
+            <div className="text-[11px] font-bold text-slate-500 dark:text-slate-400">Resolved Difficulties</div>
+            <div className="text-2xl font-black font-mono text-emerald-600 dark:text-emerald-400 mt-0.5">{resolvedCount}</div>
           </div>
-          <div className="text-2xl font-black text-emerald-950 dark:text-emerald-200 mt-1">
-            {resolvedCount}
-          </div>
-          <div className="text-[10px] text-emerald-600/80 dark:text-emerald-400/80 mt-0.5">
-            Mastered difficulties
+          <div className="w-10 h-10 rounded-xl bg-emerald-50 dark:bg-emerald-950/60 flex items-center justify-center text-emerald-600 dark:text-emerald-400">
+            <CheckCircle2 className="w-5 h-5" />
           </div>
         </div>
       </div>
+
 
       {/* Search & Filter Controls */}
       <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 p-3 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800">

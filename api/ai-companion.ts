@@ -165,7 +165,7 @@ ${JSON.stringify(context || {}, null, 2)}
     contents.push({ text: userPromptText });
 
     const response = await ai.models.generateContent({
-      model: 'gemini-3.8-flash',
+      model: 'gemini-2.5-flash',
       contents: contents,
       config: {
         systemInstruction,

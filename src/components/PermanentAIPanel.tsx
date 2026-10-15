@@ -215,21 +215,24 @@ export const PermanentAIPanel: React.FC<PermanentAIPanelProps> = ({
   const primarySubject2 = account.subjects?.[1]?.name || 'Maths';
 
   return (
-    <div className="w-full lg:w-[380px] xl:w-[420px] bg-white dark:bg-slate-900 border-l border-slate-200 dark:border-slate-800 flex flex-col shrink-0 h-full select-none shadow-sm">
+    <div className="w-full lg:w-[380px] xl:w-[420px] glass-panel border-l border-slate-200/80 dark:border-slate-800 flex flex-col shrink-0 h-full shadow-sm relative">
       {/* Permanent Header */}
-      <div className="p-4 border-b border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-800/40">
+      <div className="p-4 border-b border-slate-200/80 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-800/40">
         <div className="flex items-center justify-between">
-          <div className="flex items-center space-x-2">
-            <div className="w-7 h-7 rounded-md bg-blue-600 text-white flex items-center justify-center font-bold">
+          <div className="flex items-center space-x-2.5">
+            <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-blue-600 to-indigo-600 text-white flex items-center justify-center font-bold shadow-xs">
               <Sparkles className="w-4 h-4" />
             </div>
             <div>
-              <div className="text-xs font-bold text-slate-900 dark:text-white flex items-center space-x-1.5">
+              <div className="text-xs font-black text-slate-900 dark:text-white flex items-center space-x-1.5">
                 <span>AI Execution Copilot</span>
-                <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+                <span className="flex items-center space-x-1 px-1.5 py-0.2 rounded-full bg-emerald-100 dark:bg-emerald-950 text-[9px] font-mono font-bold text-emerald-700 dark:text-emerald-300">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                  <span>Ready</span>
+                </span>
               </div>
               <div className="text-[11px] text-slate-500 dark:text-slate-400">
-                Action-first · Permanent Corner Guide
+                Action-first · Zero-latency Copilot
               </div>
             </div>
           </div>
@@ -368,13 +371,13 @@ export const PermanentAIPanel: React.FC<PermanentAIPanelProps> = ({
       )}
 
       {/* Prominent Chat & Voice Input Box */}
-      <div className="p-3 border-t border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900">
+      <div className="p-3 border-t border-slate-200/80 dark:border-slate-800 bg-white/90 dark:bg-slate-900/90 backdrop-blur-md">
         <form
           onSubmit={(e) => {
             e.preventDefault();
             handleSendMessage();
           }}
-          className="flex items-center space-x-1.5"
+          className="flex items-center space-x-1.5 p-1 bg-slate-50 dark:bg-slate-800/80 rounded-2xl border border-slate-200 dark:border-slate-700/80 shadow-inner focus-within:ring-2 focus-within:ring-blue-500/30 focus-within:border-blue-500"
         >
           <input
             ref={fileInputRef}
@@ -388,7 +391,7 @@ export const PermanentAIPanel: React.FC<PermanentAIPanelProps> = ({
             type="button"
             onClick={() => fileInputRef.current?.click()}
             title="Drop photo of timetable or notes"
-            className="p-2 rounded-lg text-slate-500 hover:text-blue-600 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer shrink-0"
+            className="p-2 rounded-xl text-slate-500 hover:text-blue-600 hover:bg-white dark:hover:bg-slate-700 transition-colors cursor-pointer shrink-0"
           >
             <ImageIcon className="w-4 h-4" />
           </button>
@@ -397,10 +400,10 @@ export const PermanentAIPanel: React.FC<PermanentAIPanelProps> = ({
             type="button"
             onClick={toggleVoiceInput}
             title={isListening ? 'Stop listening' : 'Voice command'}
-            className={`p-2 rounded-lg transition-colors cursor-pointer shrink-0 ${
+            className={`p-2 rounded-xl transition-colors cursor-pointer shrink-0 ${
               isListening
-                ? 'bg-red-500 text-white animate-pulse'
-                : 'text-slate-500 hover:text-blue-600 hover:bg-slate-100 dark:hover:bg-slate-800'
+                ? 'bg-rose-500 text-white animate-pulse'
+                : 'text-slate-500 hover:text-blue-600 hover:bg-white dark:hover:bg-slate-700'
             }`}
           >
             <Mic className="w-4 h-4" />
@@ -411,13 +414,13 @@ export const PermanentAIPanel: React.FC<PermanentAIPanelProps> = ({
             value={inputText}
             onChange={(e) => setInputText(e.target.value)}
             placeholder="Type command, e.g. 'Math test Friday'..."
-            className="flex-1 px-3 py-2 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-blue-600"
+            className="flex-1 px-2.5 py-2 text-xs font-medium bg-transparent text-slate-900 dark:text-white placeholder:text-slate-400 outline-none"
           />
 
           <button
             type="submit"
             disabled={!inputText.trim() && !selectedImage}
-            className="p-2 rounded-lg bg-slate-900 text-white dark:bg-white dark:text-slate-900 disabled:opacity-40 hover:opacity-90 transition-opacity cursor-pointer shrink-0"
+            className="p-2 rounded-xl bg-slate-900 text-white dark:bg-white dark:text-slate-900 disabled:opacity-30 hover:opacity-90 transition-opacity cursor-pointer shrink-0 shadow-xs"
           >
             <Send className="w-4 h-4" />
           </button>

@@ -21,7 +21,6 @@ import { TaskChecklistView } from './components/TaskChecklistView';
 import { AcademicReportView } from './components/AcademicReportView';
 import { PermanentAIPanel } from './components/PermanentAIPanel';
 import { TimetableModal } from './components/TimetableModal';
-import { InstructionsModal } from './components/InstructionsModal';
 import { UserAuthGate } from './components/UserAuthGate';
 import { 
   getActiveUser, 
@@ -47,13 +46,18 @@ import {
   Settings,
   Palette,
   LogOut,
-  User
+  User,
+  Sliders
 } from 'lucide-react';
 
 export default function App() {
   const [isDarkMode, setIsDarkMode] = useState<boolean>(() => {
     const saved = localStorage.getItem('apexstudy_theme');
     return saved ? saved === 'dark' : false; // Default to clean bright mode
+  });
+
+  const [currentPalette, setCurrentPalette] = useState<string>(() => {
+    return localStorage.getItem('apexstudy_palette') || 'default';
   });
 
   // Current authenticated user session (guarantees device and user data isolation)
@@ -92,7 +96,7 @@ export default function App() {
   // Modals state
   const [isProfileSetupOpen, setIsProfileSetupOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  const [settingsInitialTab, setSettingsInitialTab] = useState<'profile' | 'colors' | 'tasks' | 'reviews' | 'occasional' | 'accounts' | 'data'>('profile');
+  const [settingsInitialTab, setSettingsInitialTab] = useState<'profile' | 'theme' | 'colors' | 'tasks' | 'reviews' | 'occasional' | 'accounts' | 'data'>('profile');
   const [editingSlot, setEditingSlot] = useState<TimetableSlot | null>(null);
   const [isSlotModalOpen, setIsSlotModalOpen] = useState(false);
   const [isInstructionsModalOpen, setIsInstructionsModalOpen] = useState(false);
@@ -110,7 +114,7 @@ export default function App() {
     }, 3200);
   };
 
-  // Sync theme
+  // Sync theme class
   useEffect(() => {
     if (isDarkMode) {
       document.documentElement.classList.add('dark');
@@ -120,6 +124,16 @@ export default function App() {
       localStorage.setItem('apexstudy_theme', 'light');
     }
   }, [isDarkMode]);
+
+  // Sync palette attribute
+  useEffect(() => {
+    if (currentPalette && currentPalette !== 'default') {
+      document.documentElement.setAttribute('data-palette', currentPalette);
+    } else {
+      document.documentElement.removeAttribute('data-palette');
+    }
+    localStorage.setItem('apexstudy_palette', currentPalette);
+  }, [currentPalette]);
 
   // Persist states strictly per active user
   useEffect(() => {
@@ -152,7 +166,6 @@ export default function App() {
 
   // Switch between existing accounts
   const handleSwitchAccount = (targetAccountId: string) => {
-    // 1. Save current workspace first
     if (currentUser) {
       saveUserTimetable(currentUser.id, slots);
       saveUserTasks(currentUser.id, tasks);
@@ -181,6 +194,17 @@ export default function App() {
     setActiveUserId(null);
     setCurrentUser(null);
     showToast('Logged out of workspace');
+  };
+
+  // Theme controls
+  const handleSetThemeMode = (mode: 'light' | 'dark') => {
+    setIsDarkMode(mode === 'dark');
+    showToast(`Switched to ${mode === 'dark' ? 'Dark' : 'Light'} Theme Version`);
+  };
+
+  const handleSelectPalette = (paletteId: string) => {
+    setCurrentPalette(paletteId);
+    showToast(`Applied ${paletteId} theme style`);
   };
 
   // Account Handlers
@@ -457,18 +481,35 @@ export default function App() {
   const activeProblemsCount = problems.filter(p => p.status === 'Active').length;
 
   return (
-    <div className="min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 flex flex-col font-sans transition-colors selection:bg-slate-900 selection:text-white dark:selection:bg-white dark:selection:text-slate-900">
+    <div className="min-h-screen bg-[#FBFBFA] dark:bg-[#0A0C10] text-slate-900 dark:text-slate-100 flex flex-col font-sans transition-colors relative selection:bg-blue-600 selection:text-white">
+      {/* Ambient background light orbs for visual depth */}
+      <div className="fixed top-0 left-1/4 w-[500px] h-[500px] bg-gradient-to-br from-blue-500/5 to-cyan-500/5 dark:from-blue-600/10 dark:to-cyan-600/5 rounded-full blur-3xl pointer-events-none -z-10" />
+      <div className="fixed top-40 right-10 w-[500px] h-[500px] bg-gradient-to-br from-indigo-500/5 to-purple-500/5 dark:from-indigo-600/10 dark:to-purple-600/5 rounded-full blur-3xl pointer-events-none -z-10" />
+
       {/* Toast Alert */}
       {toastMessage && (
-        <div className="fixed top-5 left-1/2 -translate-x-1/2 z-50 flex items-center space-x-2 px-3.5 py-2 rounded-xl bg-slate-900 text-white dark:bg-white dark:text-slate-900 shadow-xl text-xs font-bold animate-fade-in">
-          <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+        <div className="fixed top-5 left-1/2 -translate-x-1/2 z-50 flex items-center space-x-2.5 px-4 py-2.5 rounded-2xl bg-slate-900 text-white dark:bg-white dark:text-slate-900 shadow-2xl text-xs font-bold animate-fade-in border border-slate-700 dark:border-slate-300">
+          <CheckCircle2 className="w-4 h-4 text-emerald-400 dark:text-emerald-600" />
           <span>{toastMessage}</span>
         </div>
       )}
 
-      {/* Main Top Header */}
-      <header className="h-16 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-4 sm:px-6 flex items-center justify-between shrink-0">
+      {/* Main Top Header - Frosted Glass Navigation Bar */}
+      <header className="h-16 border-b border-slate-200/70 dark:border-slate-800/80 bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl px-4 sm:px-6 flex items-center justify-between shrink-0 sticky top-0 z-30 shadow-2xs">
         <div className="flex items-center space-x-3">
+          {/* Brand Mark */}
+          <div className="hidden sm:flex items-center space-x-2 mr-1">
+            <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-blue-600 via-indigo-600 to-violet-600 flex items-center justify-center text-white font-black text-sm shadow-sm ring-1 ring-white/20">
+              A
+            </div>
+            <div>
+              <span className="font-black text-sm tracking-tight text-slate-900 dark:text-white">Apex</span>
+              <span className="ml-1 text-[9px] font-mono font-bold px-1.5 py-0.5 rounded-md bg-blue-50 text-blue-700 dark:bg-blue-950/80 dark:text-blue-300">STUDENT</span>
+            </div>
+          </div>
+
+          <div className="h-4 w-[1px] bg-slate-200 dark:bg-slate-800 hidden sm:block" />
+
           {/* User Area Account Selector & Switcher */}
           <AccountSwitcher
             accounts={accounts}
@@ -488,73 +529,84 @@ export default function App() {
           />
         </div>
 
-        {/* Primary 4 Clean Tabs in the Center */}
-        <div className="flex items-center space-x-1 p-1 bg-slate-100 dark:bg-slate-800 rounded-xl text-xs font-semibold overflow-x-auto">
-          {/* TAB 1: INTEGRATED CALENDAR (Month Overview & Week Detail with Day Inspector) */}
+        {/* Primary 3 Focused Tabs in the Center */}
+        <div className="flex items-center space-x-1 p-1 bg-slate-100/80 dark:bg-slate-800/80 rounded-2xl border border-slate-200/50 dark:border-slate-700/50 text-xs font-semibold">
+          {/* TAB 1: INTEGRATED CALENDAR */}
           <button
             onClick={() => setActiveTab('calendar')}
-            className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-lg transition-colors cursor-pointer whitespace-nowrap ${
+            className={`flex items-center space-x-1.5 px-3.5 py-1.5 rounded-xl transition-all cursor-pointer whitespace-nowrap ${
               activeTab === 'calendar'
                 ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-xs font-bold'
                 : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
             }`}
           >
             <CalendarIcon className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
-            <span>Calendar ({slots.length})</span>
+            <span>Calendar</span>
+            <span className="text-[10px] font-mono px-1.5 py-0.2 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 font-bold">
+              {slots.length}
+            </span>
           </button>
 
           {/* TAB 2: TASKS */}
           <button
             onClick={() => setActiveTab('tasks')}
-            className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-lg transition-colors cursor-pointer whitespace-nowrap ${
+            className={`flex items-center space-x-1.5 px-3.5 py-1.5 rounded-xl transition-all cursor-pointer whitespace-nowrap ${
               activeTab === 'tasks'
                 ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-xs font-bold'
                 : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
             }`}
           >
             <CheckSquare className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
-            <span>Tasks ({pendingTasksCount})</span>
+            <span>Tasks</span>
+            {pendingTasksCount > 0 && (
+              <span className="text-[10px] font-mono px-1.5 py-0.2 rounded-full bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 font-bold">
+                {pendingTasksCount}
+              </span>
+            )}
           </button>
 
           {/* TAB 3: PROBLEM REVIEW LOG */}
           <button
             onClick={() => setActiveTab('review')}
-            className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-lg transition-colors cursor-pointer whitespace-nowrap ${
+            className={`flex items-center space-x-1.5 px-3.5 py-1.5 rounded-xl transition-all cursor-pointer whitespace-nowrap ${
               activeTab === 'review'
                 ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-xs font-bold'
                 : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
             }`}
           >
             <AlertCircle className="w-3.5 h-3.5 text-rose-600 dark:text-rose-400" />
-            <span>Problem Reviews {activeProblemsCount > 0 && <span className="ml-0.5 px-1.5 py-0.2 rounded-full text-[10px] bg-rose-600 text-white font-mono">{activeProblemsCount}</span>}</span>
-          </button>
-
-          {/* TAB 4: ACADEMIC REPORT */}
-          <button
-            onClick={() => setActiveTab('report')}
-            className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-lg transition-colors cursor-pointer whitespace-nowrap ${
-              activeTab === 'report'
-                ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-xs font-bold'
-                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-            }`}
-          >
-            <BarChart3 className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
-            <span>Academic Report</span>
+            <span>Reviews</span>
+            {activeProblemsCount > 0 && (
+              <span className="text-[10px] font-mono px-1.5 py-0.2 rounded-full bg-rose-600 text-white font-bold">
+                {activeProblemsCount}
+              </span>
+            )}
           </button>
         </div>
 
         {/* Right Header Controls */}
         <div className="flex items-center space-x-2">
+          {/* Direct Instant Light & Dark Theme Toggle */}
+          <button
+            type="button"
+            onClick={() => setIsDarkMode(!isDarkMode)}
+            className="p-2 rounded-xl border border-slate-200/80 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 transition-colors cursor-pointer flex items-center space-x-1.5 bg-white/60 dark:bg-slate-800/60 shadow-2xs"
+            title={isDarkMode ? 'Switch to Light Theme' : 'Switch to Dark Theme'}
+          >
+            {isDarkMode ? <Sun className="w-4 h-4 text-amber-400" /> : <Moon className="w-4 h-4 text-blue-500" />}
+            <span className="text-xs font-bold hidden sm:inline">{isDarkMode ? 'Light' : 'Dark'}</span>
+          </button>
+
           {/* Quick Course Colors Trigger */}
           <button
             onClick={() => {
               setSettingsInitialTab('colors');
               setIsSettingsOpen(true);
             }}
-            className="p-2 rounded-xl border border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 transition-colors cursor-pointer hidden md:flex items-center space-x-1.5"
+            className="p-2 rounded-xl border border-slate-200/80 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 transition-colors cursor-pointer hidden md:flex items-center space-x-1.5 bg-white/60 dark:bg-slate-800/60 shadow-2xs"
             title="Course Colors & Palette"
           >
-            <Palette className="w-4 h-4 text-blue-600" />
+            <Palette className="w-4 h-4 text-blue-600 dark:text-blue-400" />
             <span className="text-xs font-bold">Colors</span>
           </button>
 
@@ -564,27 +616,17 @@ export default function App() {
               setSettingsInitialTab('profile');
               setIsSettingsOpen(true);
             }}
-            className="p-2 rounded-xl border border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 transition-colors cursor-pointer flex items-center space-x-1.5 bg-slate-50 dark:bg-slate-800/80 shadow-xs"
-            title="Comprehensive Settings"
+            className="p-2 rounded-xl border border-slate-200/80 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 transition-colors cursor-pointer flex items-center space-x-1.5 bg-white/60 dark:bg-slate-800/60 shadow-2xs"
+            title="Workspace Settings"
           >
             <Settings className="w-4 h-4" />
             <span className="text-xs font-bold hidden sm:inline">Settings</span>
           </button>
 
-          {/* Theme Toggle */}
-          <button
-            onClick={() => setIsDarkMode(!isDarkMode)}
-            className="p-2 rounded-xl border border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 transition-colors cursor-pointer flex items-center space-x-1.5"
-            title={isDarkMode ? 'Bright Mode' : 'Dark Mode'}
-          >
-            {isDarkMode ? <Sun className="w-4 h-4 text-amber-400" /> : <Moon className="w-4 h-4 text-slate-700" />}
-            <span className="text-xs font-bold hidden sm:inline">{isDarkMode ? 'Bright' : 'Dark'}</span>
-          </button>
-
           {/* Logout / Switch User */}
           <button
             onClick={handleLogout}
-            className="p-2 rounded-xl border border-slate-200 dark:border-slate-800 hover:bg-rose-50 dark:hover:bg-rose-950/40 text-slate-700 hover:text-rose-600 dark:text-slate-300 dark:hover:text-rose-400 transition-colors cursor-pointer flex items-center space-x-1"
+            className="p-2 rounded-xl border border-slate-200/80 dark:border-slate-800 hover:bg-rose-50 dark:hover:bg-rose-950/40 text-slate-700 hover:text-rose-600 dark:text-slate-300 dark:hover:text-rose-400 transition-colors cursor-pointer flex items-center space-x-1"
             title="Log Out & Lock Workspace"
           >
             <LogOut className="w-4 h-4" />
@@ -610,6 +652,7 @@ export default function App() {
               }}
               onDeleteSlot={handleDeleteSlot}
               onToggleTask={handleToggleTask}
+              onAddTask={handleAddTask}
               onOpenSettings={() => {
                 setSettingsInitialTab('occasional');
                 setIsSettingsOpen(true);
@@ -674,7 +717,7 @@ export default function App() {
         onSaveAccount={handleUpdateActiveAccount}
       />
 
-      {/* All-in-one Settings Hub Modal */}
+      {/* All-in-one Settings Hub Modal with dedicated Themes Tab */}
       <SettingsModal
         isOpen={isSettingsOpen}
         onClose={() => setIsSettingsOpen(false)}
@@ -685,6 +728,9 @@ export default function App() {
         slots={slots}
         isDarkMode={isDarkMode}
         onToggleTheme={() => setIsDarkMode(!isDarkMode)}
+        onSetThemeMode={handleSetThemeMode}
+        currentPalette={currentPalette}
+        onSelectPalette={handleSelectPalette}
         onUpdateAccount={handleUpdateActiveAccount}
         onSelectAccount={handleSwitchAccount}
         onCreateNewAccount={handleCreateAccount}
@@ -707,23 +753,6 @@ export default function App() {
         }}
         onSaveSlot={handleUpdateSlot}
         initialSlot={editingSlot}
-      />
-
-      {/* Instructions & Backup Modal */}
-      <InstructionsModal
-        isOpen={isInstructionsModalOpen}
-        onClose={() => setIsInstructionsModalOpen(false)}
-        tasks={tasks}
-        timetable={slots}
-        checkmarks={[]}
-        milestones={[]}
-        onImportData={(data) => {
-          handleImportBackup(data);
-        }}
-        onClearAllData={handleWipeToCompletelyEmpty}
-        onLoadSampleData={() => {
-          showToast('You can add classes or drop a schedule image to AI!');
-        }}
       />
     </div>
   );
